@@ -2,6 +2,18 @@
 export type Env = {
   DB: D1Database;
   BROWSER?: Fetcher;
+  
+  // 크롤링 설정
+  N8N_WEBHOOK_URL?: string;
+  SCRAPINGBEE_API_KEY?: string;
+  BROWSERLESS_API_KEY?: string;
+  
+  // 알림 설정
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
+  EMAIL_TO?: string;
 };
 
 // 카테고리

@@ -1,10 +1,32 @@
 import type { Env, BrandRanking } from './types';
+import { scrapeWithFallback } from './scraper-n8n';
+import { getScraperConfig } from './config';
+
+/**
+ * W컨셉 크롤링 - 통합 진입점
+ */
+export async function scrapeWconcept(url: string, env: Env): Promise<BrandRanking[]> {
+  // 설정 로드
+  const config = await getScraperConfig(env);
+
+  // 설정된 API 키가 있으면 우선 사용
+  if (config.n8nWebhookUrl || config.scrapingBeeApiKey || config.browserlessApiKey) {
+    try {
+      return await scrapeWithFallback(url, config);
+    } catch (error) {
+      console.error('External scraping failed, trying browser API:', error);
+    }
+  }
+
+  // Cloudflare Browser Rendering API 시도
+  return await scrapeWithBrowser(url, env);
+}
 
 /**
  * Cloudflare Browser Rendering API를 사용한 W컨셉 크롤링
  * https://developers.cloudflare.com/browser-rendering/
  */
-export async function scrapeWconcept(url: string, env: Env): Promise<BrandRanking[]> {
+async function scrapeWithBrowser(url: string, env: Env): Promise<BrandRanking[]> {
   // Browser Rendering API 사용 가능 여부 확인
   if (!env.BROWSER) {
     console.log('Browser Rendering API not available, using fallback method');
