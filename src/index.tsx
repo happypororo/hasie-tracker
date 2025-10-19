@@ -513,6 +513,31 @@ app.get('/', (c) => {
 
             <!-- Main Content -->
             <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+                <!-- 크롤링 설정 안내 배너 -->
+                <div class="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-yellow-800">크롤링 설정 필요</h3>
+                            <div class="mt-2 text-sm text-yellow-700">
+                                <p>W컨셉은 자동화 접근을 차단합니다. 안정적인 크롤링을 위해 다음 중 하나를 설정하세요:</p>
+                                <ul class="list-disc list-inside mt-2 space-y-1">
+                                    <li><strong>N8N 웹훅</strong> (권장): 가장 안정적, <a href="https://github.com/yourusername/webapp/blob/main/USAGE_GUIDE.md#n8n" class="underline" target="_blank">설정 가이드</a></li>
+                                    <li><strong>ScrapingBee</strong>: 무료 1000 requests/month</li>
+                                    <li><strong>Browserless</strong>: 제한적 무료</li>
+                                </ul>
+                                <p class="mt-2">
+                                    <a href="https://github.com/yourusername/webapp/blob/main/USAGE_GUIDE.md" target="_blank" class="font-medium underline">
+                                        📚 상세 가이드 보기
+                                    </a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 최신 순위 현황 -->
                 <section class="mb-8">
                     <h2 class="text-xl font-bold text-gray-900 mb-4">
