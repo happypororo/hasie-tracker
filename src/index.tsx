@@ -58,28 +58,26 @@ app.post('/api/hasie/import', async (c) => {
     for (const category of categoriesInMessage) {
       const categoryProducts = rankings.filter(r => r.category === category).map(r => r.productLink);
       
-      // 해당 카테고리의 기존 제품 중 이번에 없는 것들을 Out Rank로
-      batch.push(
-        DB.prepare(`
-          INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at)
-          SELECT category, rank, product_name, product_link, 1, datetime('now')
-          FROM hasie_rankings
-          WHERE category = ?
-            AND out_rank = 0
-            AND product_link NOT IN (${categoryProducts.map(() => '?').join(',')})
-            AND product_link IN (
-              SELECT product_link 
-              FROM hasie_rankings 
-              WHERE category = ?
-              GROUP BY product_link 
-              HAVING MAX(created_at) = (
-                SELECT MAX(created_at) 
-                FROM hasie_rankings 
-                WHERE category = ? AND out_rank = 0
-              )
-            )
-        `).bind(category, ...categoryProducts, category, category)
-      );
+      if (categoryProducts.length > 0) {
+        // 해당 카테고리에서 최신 순위(out_rank=0)인 제품 중 이번 메시지에 없는 것들을 Out Rank로
+        const placeholders = categoryProducts.map(() => '?').join(',');
+        batch.push(
+          DB.prepare(`
+            INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date)
+            SELECT h1.category, h1.rank, h1.product_name, h1.product_link, 1, datetime('now'), ?
+            FROM hasie_rankings h1
+            INNER JOIN (
+              SELECT product_link, MAX(created_at) as max_date
+              FROM hasie_rankings
+              WHERE category = ? AND out_rank = 0
+              GROUP BY product_link
+            ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+            WHERE h1.category = ?
+              AND h1.out_rank = 0
+              AND h1.product_link NOT IN (${placeholders})
+          `).bind(msgDate, category, category, ...categoryProducts)
+        );
+      }
     }
     
     // 메시지 로그 저장
@@ -182,24 +180,23 @@ app.post('/api/telegram/webhook', async (c) => {
         .map(r => r.productLink);
       
       if (categoryProducts.length > 0) {
-        // 이번 메시지에 없는 제품들을 Out Rank로 표시
+        // 해당 카테고리에서 최신 순위(out_rank=0)인 제품 중 이번 메시지에 없는 것들을 Out Rank로
         const placeholders = categoryProducts.map(() => '?').join(',');
         batch.push(
           DB.prepare(`
             INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date)
-            SELECT category, rank, product_name, product_link, 1, datetime('now'), ?
-            FROM hasie_rankings
-            WHERE category = ? 
-              AND out_rank = 0
-              AND product_link NOT IN (${placeholders})
-              AND id IN (
-                SELECT id FROM hasie_rankings r1
-                WHERE r1.product_link = hasie_rankings.product_link
-                  AND r1.out_rank = 0
-                ORDER BY r1.created_at DESC
-                LIMIT 1
-              )
-          `).bind(messageDate, category, ...categoryProducts)
+            SELECT h1.category, h1.rank, h1.product_name, h1.product_link, 1, datetime('now'), ?
+            FROM hasie_rankings h1
+            INNER JOIN (
+              SELECT product_link, MAX(created_at) as max_date
+              FROM hasie_rankings
+              WHERE category = ? AND out_rank = 0
+              GROUP BY product_link
+            ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+            WHERE h1.category = ?
+              AND h1.out_rank = 0
+              AND h1.product_link NOT IN (${placeholders})
+          `).bind(messageDate, category, category, ...categoryProducts)
         );
       }
     }
