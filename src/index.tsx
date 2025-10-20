@@ -260,6 +260,172 @@ app.get('/api/hasie/categories', async (c) => {
   }
 });
 
+/**
+ * 제품별 순위 변동 추이
+ * GET /api/hasie/product-trends?product_link=https://...
+ */
+app.get('/api/hasie/product-trends', async (c) => {
+  try {
+    const { DB } = c.env;
+    const productLink = c.req.query('product_link');
+    
+    if (!productLink) {
+      return c.json({ 
+        success: false, 
+        error: 'product_link parameter is required' 
+      }, 400);
+    }
+    
+    const { results } = await DB.prepare(`
+      SELECT 
+        id,
+        category,
+        rank,
+        product_name,
+        product_link,
+        created_at
+      FROM hasie_rankings
+      WHERE product_link = ?
+      ORDER BY created_at ASC
+    `).bind(productLink).all();
+    
+    if (results.length === 0) {
+      return c.json({
+        success: false,
+        error: 'Product not found'
+      }, 404);
+    }
+    
+    // 순위 변동 계산
+    const trends = results.map((item: any, index: number) => {
+      let change = 0;
+      let changeType = 'new';
+      
+      if (index > 0) {
+        const prevRank = (results[index - 1] as any).rank;
+        change = prevRank - item.rank; // 양수면 순위 상승, 음수면 하락
+        
+        if (change > 0) {
+          changeType = 'up';
+        } else if (change < 0) {
+          changeType = 'down';
+        } else {
+          changeType = 'stable';
+        }
+      }
+      
+      return {
+        ...item,
+        rank_change: change,
+        change_type: changeType
+      };
+    });
+    
+    return c.json({
+      success: true,
+      product_name: results[0].product_name,
+      category: results[0].category,
+      current_rank: results[results.length - 1].rank,
+      best_rank: Math.min(...results.map((r: any) => r.rank)),
+      worst_rank: Math.max(...results.map((r: any) => r.rank)),
+      total_records: results.length,
+      trends
+    });
+    
+  } catch (error: any) {
+    return c.json({ 
+      success: false, 
+      error: error.message 
+    }, 500);
+  }
+});
+
+/**
+ * 최신 순위에 순위 변동 정보 포함
+ * GET /api/hasie/latest-with-changes?category=아우터&limit=50
+ */
+app.get('/api/hasie/latest-with-changes', async (c) => {
+  try {
+    const { DB } = c.env;
+    const category = c.req.query('category');
+    const limit = parseInt(c.req.query('limit') || '50', 10);
+    
+    // 최신 데이터 조회
+    let query = `
+      SELECT 
+        id,
+        category,
+        rank,
+        product_name,
+        product_link,
+        created_at
+      FROM hasie_rankings
+    `;
+    
+    const params: any[] = [];
+    
+    if (category) {
+      query += ' WHERE category = ?';
+      params.push(category);
+    }
+    
+    query += ' ORDER BY created_at DESC, rank ASC LIMIT ?';
+    params.push(limit);
+    
+    const stmt = DB.prepare(query);
+    const { results } = await stmt.bind(...params).all();
+    
+    // 각 제품의 이전 순위 조회
+    const rankingsWithChanges = await Promise.all(
+      results.map(async (item: any) => {
+        // 이전 순위 조회 (현재보다 이전 데이터)
+        const prevRankingResult = await DB.prepare(`
+          SELECT rank
+          FROM hasie_rankings
+          WHERE product_link = ?
+            AND created_at < ?
+          ORDER BY created_at DESC
+          LIMIT 1
+        `).bind(item.product_link, item.created_at).first();
+        
+        let rankChange = 0;
+        let changeType = 'new';
+        
+        if (prevRankingResult) {
+          const prevRank = prevRankingResult.rank as number;
+          rankChange = prevRank - item.rank; // 양수면 상승, 음수면 하락
+          
+          if (rankChange > 0) {
+            changeType = 'up';
+          } else if (rankChange < 0) {
+            changeType = 'down';
+          } else {
+            changeType = 'stable';
+          }
+        }
+        
+        return {
+          ...item,
+          rank_change: rankChange,
+          change_type: changeType
+        };
+      })
+    );
+    
+    return c.json({
+      success: true,
+      count: rankingsWithChanges.length,
+      rankings: rankingsWithChanges
+    });
+    
+  } catch (error: any) {
+    return c.json({ 
+      success: false, 
+      error: error.message 
+    }, 500);
+  }
+});
+
 // ============================================
 // 홈페이지
 // ============================================
@@ -328,6 +494,7 @@ app.get('/', (c) => {
         </div>
         
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
         <script src="/static/app.js"></script>
     </body>
     </html>
