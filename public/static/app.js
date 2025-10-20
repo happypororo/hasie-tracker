@@ -197,7 +197,7 @@ function displayOutRank(outRankings) {
                         class="hover:text-black transition">
                   동향 차트
                 </button>
-                <span>이탈: ${formatDate(item.out_rank_date)}</span>
+                <span>이탈: ${formatDateTime(item.out_rank_date)}</span>
               </div>
             </div>
           </div>
@@ -274,7 +274,7 @@ function displayRankings(rankings) {
                         class="hover:text-black transition">
                   동향 차트
                 </button>
-                <span>${formatDate(item.created_at)}</span>
+                <span>${formatDateTime(item.created_at)}</span>
               </div>
             </div>
           </div>
