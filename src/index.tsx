@@ -75,7 +75,7 @@ app.post('/api/hasie/import', async (c) => {
           ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
           WHERE h1.out_rank = 0
             AND h1.product_link NOT IN (${placeholders})
-            AND h1.message_date != ?
+            AND strftime('%Y-%m-%d %H:%M', h1.message_date) != strftime('%Y-%m-%d %H:%M', ?)
         `).bind(msgDate, ...allProductLinks, msgDate)
       );
     }
@@ -193,7 +193,7 @@ app.post('/api/telegram/webhook', async (c) => {
           ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
           WHERE h1.out_rank = 0
             AND h1.product_link NOT IN (${placeholders})
-            AND h1.message_date != ?
+            AND strftime('%Y-%m-%d %H:%M', h1.message_date) != strftime('%Y-%m-%d %H:%M', ?)
         `).bind(messageDate, ...allProductLinks, messageDate)
       );
     }
