@@ -128,11 +128,14 @@ app.post('/api/telegram/webhook', async (c) => {
     
     // 메시지가 있는지 확인
     if (!update.message || !update.message.text) {
-      return c.json({ success: false, error: 'No message text' }, 400);
+      return c.json({ success: true, message: 'No text message' }, 200);
     }
     
     const messageId = update.message.message_id;
     const messageText = update.message.text;
+    const messageDate = update.message.date 
+      ? new Date(update.message.date * 1000).toISOString() 
+      : new Date().toISOString();
     
     // 이미 처리된 메시지인지 확인
     const existingMessage = await DB.prepare(
@@ -140,7 +143,7 @@ app.post('/api/telegram/webhook', async (c) => {
     ).bind(messageId).first();
     
     if (existingMessage) {
-      return c.json({ success: false, error: 'Message already processed' }, 200);
+      return c.json({ success: true, message: 'Already processed' }, 200);
     }
     
     // 메시지 파싱
@@ -149,14 +152,14 @@ app.post('/api/telegram/webhook', async (c) => {
     if (rankings.length === 0) {
       // 파싱 실패해도 메시지 로그는 저장
       await DB.prepare(
-        'INSERT INTO telegram_messages (message_id, message_text, parsed_count) VALUES (?, ?, ?)'
-      ).bind(messageId, messageText, 0).run();
+        'INSERT INTO telegram_messages (message_id, message_text, parsed_count, message_date) VALUES (?, ?, ?, ?)'
+      ).bind(messageId, messageText, 0, messageDate).run();
       
       return c.json({ 
         success: true, 
-        message: 'No rankings found in message',
+        message: 'No rankings found',
         parsedCount: 0
-      });
+      }, 200);
     }
     
     // 트랜잭션으로 데이터 저장
@@ -165,16 +168,48 @@ app.post('/api/telegram/webhook', async (c) => {
     // 메시지 로그 저장
     batch.push(
       DB.prepare(
-        'INSERT INTO telegram_messages (message_id, message_text, parsed_count) VALUES (?, ?, ?)'
-      ).bind(messageId, messageText, rankings.length)
+        'INSERT INTO telegram_messages (message_id, message_text, parsed_count, message_date) VALUES (?, ?, ?, ?)'
+      ).bind(messageId, messageText, rankings.length, messageDate)
     );
     
-    // 순위 데이터 저장
+    // 이번 메시지에 등장한 카테고리 목록
+    const categoriesInMessage = [...new Set(rankings.map(r => r.category))];
+    
+    // 각 카테고리별로 Out Rank 처리
+    for (const category of categoriesInMessage) {
+      const categoryProducts = rankings
+        .filter(r => r.category === category)
+        .map(r => r.productLink);
+      
+      if (categoryProducts.length > 0) {
+        // 이번 메시지에 없는 제품들을 Out Rank로 표시
+        const placeholders = categoryProducts.map(() => '?').join(',');
+        batch.push(
+          DB.prepare(`
+            INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date)
+            SELECT category, rank, product_name, product_link, 1, datetime('now'), ?
+            FROM hasie_rankings
+            WHERE category = ? 
+              AND out_rank = 0
+              AND product_link NOT IN (${placeholders})
+              AND id IN (
+                SELECT id FROM hasie_rankings r1
+                WHERE r1.product_link = hasie_rankings.product_link
+                  AND r1.out_rank = 0
+                ORDER BY r1.created_at DESC
+                LIMIT 1
+              )
+          `).bind(messageDate, category, ...categoryProducts)
+        );
+      }
+    }
+    
+    // 새 순위 데이터 저장 (out_rank = 0)
     for (const ranking of rankings) {
       batch.push(
         DB.prepare(
-          'INSERT INTO hasie_rankings (category, rank, product_name, product_link) VALUES (?, ?, ?, ?)'
-        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink)
+          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, message_date) VALUES (?, ?, ?, ?, 0, ?)'
+        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink, messageDate)
       );
     }
     
@@ -184,15 +219,40 @@ app.post('/api/telegram/webhook', async (c) => {
       success: true,
       message: 'Rankings saved successfully',
       parsedCount: rankings.length,
-      rankings: rankings.map(r => ({
-        category: r.category,
-        rank: r.rank,
-        productName: r.productName
-      }))
-    });
+      categories: categoriesInMessage
+    }, 200);
     
   } catch (error: any) {
     console.error('Webhook error:', error);
+    return c.json({ 
+      success: true, 
+      message: 'Error processed',
+      error: error.message 
+    }, 200);
+  }
+});
+
+/**
+ * 데이터베이스 초기화
+ * DELETE /api/hasie/reset
+ */
+app.delete('/api/hasie/reset', async (c) => {
+  try {
+    const { DB } = c.env;
+    
+    // 모든 데이터 삭제
+    await DB.batch([
+      DB.prepare('DELETE FROM hasie_rankings'),
+      DB.prepare('DELETE FROM telegram_messages')
+    ]);
+    
+    return c.json({
+      success: true,
+      message: '모든 데이터가 삭제되었습니다'
+    });
+    
+  } catch (error: any) {
+    console.error('Reset error:', error);
     return c.json({ 
       success: false, 
       error: error.message 
@@ -647,9 +707,14 @@ app.get('/', (c) => {
             <div class="border border-gray-200 p-4 mb-6">
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-sm font-semibold text-gray-700">실시간 연동</div>
-                    <button onclick="showImportModal()" class="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800 transition">
-                        메시지 입력
-                    </button>
+                    <div class="flex gap-2">
+                        <button onclick="showImportModal()" class="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800 transition">
+                            메시지 입력
+                        </button>
+                        <button onclick="resetDatabase()" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm hover:bg-gray-100 transition">
+                            초기화
+                        </button>
+                    </div>
                 </div>
                 <div class="text-xs text-gray-500">
                     텔레그램 채널의 메시지를 복사해서 붙여넣으세요

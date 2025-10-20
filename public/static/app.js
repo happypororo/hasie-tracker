@@ -490,6 +490,29 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// 데이터베이스 초기화
+async function resetDatabase() {
+  if (!confirm('⚠️ 모든 순위 데이터가 삭제됩니다.\n정말로 초기화하시겠습니까?')) {
+    return;
+  }
+  
+  try {
+    const response = await axios.delete('/api/hasie/reset');
+    
+    if (response.data.success) {
+      alert('✅ 데이터베이스가 초기화되었습니다');
+      
+      // 페이지 새로고침
+      window.location.reload();
+    } else {
+      alert('❌ 초기화 실패: ' + response.data.error);
+    }
+  } catch (error) {
+    console.error('초기화 실패:', error);
+    alert('❌ 초기화 중 오류가 발생했습니다');
+  }
+}
+
 // 실시간 연동 모달 표시
 function showImportModal() {
   const now = new Date();

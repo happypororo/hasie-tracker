@@ -12,10 +12,12 @@
 
 ## ✅ 완료된 기능
 
-### 1. **텔레그램 자동 연동**
-- 텔레그램 채널 웹훅 자동 수신
+### 1. **텔레그램 연동 (자동 + 수동)**
+- **자동 연동**: 텔레그램 웹훅으로 메시지 실시간 수신
+- **수동 입력**: 대시보드에서 메시지 복사/붙여넣기
 - 메시지 파싱 (여러 카테고리 동시 처리)
 - 하시에 브랜드 순위 데이터 자동 저장
+- Out Rank 자동 추적 (순위권 이탈 제품 관리)
 
 ### 2. **순위 데이터 관리**
 - 동일 제품의 **최신 순위만** 표시 (중복 제거)
@@ -38,6 +40,18 @@
 - 제품 클릭 → 순위 히스토리 차트
 - Chart.js 기반 시각화
 - 첫 등장부터 현재까지 전체 이력 표시
+
+### 6. **Out Rank 기능**
+- **[최신 순위] 탭**: 현재 순위권 내 제품들
+- **[Out Rank] 탭**: 순위권 이탈 제품들
+- 제품이 다시 순위권 진입 시 자동으로 최신 순위 탭으로 복귀
+- 카테고리별 Out Rank 추적
+
+### 7. **데이터 관리**
+- **초기화 버튼**: 모든 순위 데이터 삭제
+- 확인 메시지로 안전장치 제공
+- 한국 시간대(KST) 표시
+- 텔레그램 메시지 시간 기준 업데이트
 
 ## 📊 데이터 구조
 
@@ -83,7 +97,7 @@ curl http://localhost:3000
 
 ### 환경 변수 (.dev.vars)
 ```bash
-TELEGRAM_BOT_TOKEN=your-bot-token-here
+TELEGRAM_BOT_TOKEN=8402879837:AAGaN2uVkkufLo5hDBbDjZORFx_PNjJRtq4
 ```
 
 ## 🤖 텔레그램 봇 설정
@@ -96,33 +110,50 @@ TELEGRAM_BOT_TOKEN=your-bot-token-here
 4. API 토큰 복사
 ```
 
-### 2. 웹훅 설정
+### 2. 웹훅 설정 (현재 활성화됨)
 ```bash
-curl -X POST "https://api.telegram.com/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-domain.com/api/telegram/webhook"
+# 현재 설정된 웹훅
+curl -X POST "https://api.telegram.org/bot8402879837:AAGaN2uVkkufLo5hDBbDjZORFx_PNjJRtq4/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://3000-i1xyioj8hpgtq5ei2pf6u-2e77fc33.sandbox.novita.ai/api/telegram/webhook",
+    "allowed_updates": ["message"]
+  }'
+
+# 웹훅 상태 확인
+curl -s "https://api.telegram.org/bot8402879837:AAGaN2uVkkufLo5hDBbDjZORFx_PNjJRtq4/getWebhookInfo"
 ```
 
-### 3. 채널에 봇 추가
-```
-1. 텔레그램 채널 열기
-2. 설정 > 관리자 추가
-3. 봇 추가
-4. "메시지 보기" 권한 활성화
-```
+### 3. 사용 방법
+**자동 연동 (웹훅)**:
+- 봇에게 메시지를 보내면 자동으로 사이트에 반영됩니다
+- 실시간 업데이트 (즉시 반영)
+
+**수동 입력**:
+1. 텔레그램에서 메시지 복사
+2. 대시보드에서 "메시지 입력" 클릭
+3. 메시지 붙여넣기 후 확인
+4. 메시지 시간 조정 가능 (선택사항)
 
 ## 🌐 API 엔드포인트
 
-### 텔레그램 웹훅
-- `POST /api/telegram/webhook` - 텔레그램 메시지 수신
+### 텔레그램 연동
+- `POST /api/telegram/webhook` - 텔레그램 웹훅 (자동 수신)
+- `POST /api/hasie/import` - 수동 메시지 입력
 
 ### 순위 조회
-- `GET /api/hasie/latest?category=아우터` - 최신 순위 (각 제품 1개씩)
+- `GET /api/hasie/latest?category=아우터` - 최신 순위 (out_rank = 0)
 - `GET /api/hasie/latest-with-changes?category=셔츠` - 순위 변동 정보 포함
+- `GET /api/hasie/out-rank?category=아우터` - 순위권 이탈 제품
 - `GET /api/hasie/categories` - 카테고리 목록
 
 ### 통계 및 분석
 - `GET /api/hasie/stats` - 카테고리별 통계
 - `GET /api/hasie/product-trends?product_link=...` - 특정 제품 동향
 - `GET /api/hasie/trends?category=아우터&days=7` - 카테고리 트렌드
+
+### 데이터 관리
+- `DELETE /api/hasie/reset` - 데이터베이스 초기화
 
 ## 🎨 UI/UX 특징
 
