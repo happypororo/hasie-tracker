@@ -43,10 +43,43 @@ app.post('/api/hasie/import', async (c) => {
       }, 400);
     }
     
-    // 트랜잭션으로 데이터 저장
+    // 이번에 등장한 제품들의 링크 목록
+    const currentProductLinks = rankings.map(r => r.productLink);
+    
+    // 카테고리별로 그룹화
+    const categoriesInMessage = [...new Set(rankings.map(r => r.category))];
+    
+    // 각 카테고리에서 이번에 등장하지 않은 제품들을 Out Rank로 표시
     const batch = [];
     
-    // 메시지 로그 저장 (수동 입력은 timestamp를 message_id로 사용)
+    for (const category of categoriesInMessage) {
+      const categoryProducts = rankings.filter(r => r.category === category).map(r => r.productLink);
+      
+      // 해당 카테고리의 기존 제품 중 이번에 없는 것들을 Out Rank로
+      batch.push(
+        DB.prepare(`
+          INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at)
+          SELECT category, rank, product_name, product_link, 1, datetime('now')
+          FROM hasie_rankings
+          WHERE category = ?
+            AND out_rank = 0
+            AND product_link NOT IN (${categoryProducts.map(() => '?').join(',')})
+            AND product_link IN (
+              SELECT product_link 
+              FROM hasie_rankings 
+              WHERE category = ?
+              GROUP BY product_link 
+              HAVING MAX(created_at) = (
+                SELECT MAX(created_at) 
+                FROM hasie_rankings 
+                WHERE category = ? AND out_rank = 0
+              )
+            )
+        `).bind(category, ...categoryProducts, category, category)
+      );
+    }
+    
+    // 메시지 로그 저장
     const messageId = Date.now();
     batch.push(
       DB.prepare(
@@ -54,11 +87,11 @@ app.post('/api/hasie/import', async (c) => {
       ).bind(messageId, messageText, rankings.length)
     );
     
-    // 순위 데이터 저장
+    // 새로운 순위 데이터 저장 (out_rank = 0, 순위권 내)
     for (const ranking of rankings) {
       batch.push(
         DB.prepare(
-          'INSERT INTO hasie_rankings (category, rank, product_name, product_link) VALUES (?, ?, ?, ?)'
+          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank) VALUES (?, ?, ?, ?, 0)'
         ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink)
       );
     }
@@ -169,7 +202,7 @@ app.post('/api/telegram/webhook', async (c) => {
 // ============================================
 
 /**
- * 최신 순위 조회 (각 제품의 최신 순위만)
+ * 최신 순위 조회 (각 제품의 최신 순위만, 순위권 내)
  * GET /api/hasie/latest?category=아우터
  */
 app.get('/api/hasie/latest', async (c) => {
@@ -177,7 +210,7 @@ app.get('/api/hasie/latest', async (c) => {
     const { DB } = c.env;
     const category = c.req.query('category');
     
-    // 각 제품의 최신 순위만 가져오기
+    // 각 제품의 최신 순위만 가져오기 (out_rank = 0인 것만)
     let query = `
       SELECT 
         h1.id,
@@ -190,9 +223,11 @@ app.get('/api/hasie/latest', async (c) => {
       INNER JOIN (
         SELECT product_link, MAX(created_at) as max_date
         FROM hasie_rankings
-        ${category ? 'WHERE category = ?' : ''}
+        WHERE out_rank = 0
+        ${category ? 'AND category = ?' : ''}
         GROUP BY product_link
       ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+      WHERE h1.out_rank = 0
       ORDER BY h1.rank ASC
     `;
     
@@ -208,6 +243,58 @@ app.get('/api/hasie/latest', async (c) => {
       success: true,
       count: results.length,
       rankings: results
+    });
+    
+  } catch (error: any) {
+    return c.json({ 
+      success: false, 
+      error: error.message 
+    }, 500);
+  }
+});
+
+/**
+ * Out Rank 조회 (순위권 이탈 제품)
+ * GET /api/hasie/out-rank?category=아우터
+ */
+app.get('/api/hasie/out-rank', async (c) => {
+  try {
+    const { DB } = c.env;
+    const category = c.req.query('category');
+    
+    // 각 제품의 최신 Out Rank 기록만 가져오기
+    let query = `
+      SELECT 
+        h1.id,
+        h1.category,
+        h1.rank as last_rank,
+        h1.product_name,
+        h1.product_link,
+        h1.created_at as out_rank_date
+      FROM hasie_rankings h1
+      INNER JOIN (
+        SELECT product_link, MAX(created_at) as max_date
+        FROM hasie_rankings
+        WHERE out_rank = 1
+        ${category ? 'AND category = ?' : ''}
+        GROUP BY product_link
+      ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+      WHERE h1.out_rank = 1
+      ORDER BY h1.created_at DESC
+    `;
+    
+    const params: any[] = [];
+    if (category) {
+      params.push(category);
+    }
+    
+    const stmt = DB.prepare(query);
+    const { results } = await stmt.bind(...params).all();
+    
+    return c.json({
+      success: true,
+      count: results.length,
+      out_rankings: results
     });
     
   } catch (error: any) {
@@ -404,7 +491,7 @@ app.get('/api/hasie/product-trends', async (c) => {
 });
 
 /**
- * 최신 순위에 순위 변동 정보 포함 (각 제품의 최신 순위만)
+ * 최신 순위에 순위 변동 정보 포함 (각 제품의 최신 순위만, 순위권 내)
  * GET /api/hasie/latest-with-changes?category=아우터
  */
 app.get('/api/hasie/latest-with-changes', async (c) => {
@@ -412,7 +499,7 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
     const { DB } = c.env;
     const category = c.req.query('category');
     
-    // 각 제품의 최신 순위만 가져오기
+    // 각 제품의 최신 순위만 가져오기 (out_rank = 0)
     let query = `
       SELECT 
         h1.id,
@@ -425,9 +512,11 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
       INNER JOIN (
         SELECT product_link, MAX(created_at) as max_date
         FROM hasie_rankings
-        ${category ? 'WHERE category = ?' : ''}
+        WHERE out_rank = 0
+        ${category ? 'AND category = ?' : ''}
         GROUP BY product_link
       ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+      WHERE h1.out_rank = 0
       ORDER BY h1.rank ASC
     `;
     
@@ -442,12 +531,13 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
     // 각 제품의 바로 이전 순위 조회
     const rankingsWithChanges = await Promise.all(
       results.map(async (item: any) => {
-        // 바로 이전 순위 조회 (현재보다 이전 데이터)
+        // 바로 이전 순위 조회 (out_rank = 0인 이전 데이터만)
         const prevRankingResult = await DB.prepare(`
           SELECT rank
           FROM hasie_rankings
           WHERE product_link = ?
             AND created_at < ?
+            AND out_rank = 0
           ORDER BY created_at DESC
           LIMIT 1
         `).bind(item.product_link, item.created_at).first();
@@ -556,12 +646,25 @@ app.get('/', (c) => {
                 </div>
             </div>
             
-            <!-- 최신 순위 -->
+            <!-- 순위 탭 -->
             <div class="border border-gray-200">
-                <div class="border-b border-gray-200 px-4 py-3">
-                    <h2 class="text-lg font-bold text-black">최신 순위</h2>
+                <!-- 탭 헤더 -->
+                <div class="border-b border-gray-200 px-4 py-3 flex items-center gap-4">
+                    <button onclick="switchTab('latest')" id="tabLatest" class="text-lg font-bold text-black border-b-2 border-black pb-1">
+                        최신 순위
+                    </button>
+                    <button onclick="switchTab('outrank')" id="tabOutrank" class="text-lg font-bold text-gray-400 hover:text-black pb-1">
+                        Out Rank
+                    </button>
                 </div>
-                <div id="rankings" class="divide-y divide-gray-200">
+                
+                <!-- 최신 순위 탭 -->
+                <div id="rankingsTab" class="divide-y divide-gray-200">
+                    <p class="text-gray-500 text-center py-8 text-sm">로딩 중...</p>
+                </div>
+                
+                <!-- Out Rank 탭 (숨김) -->
+                <div id="outrankTab" class="divide-y divide-gray-200 hidden">
                     <p class="text-gray-500 text-center py-8 text-sm">로딩 중...</p>
                 </div>
             </div>

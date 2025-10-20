@@ -1,6 +1,7 @@
 // 하시에 순위 트래커 - 심플 흑백 버전
 
 let currentCategory = null;
+let currentTab = 'latest'; // 'latest' 또는 'outrank'
 
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
@@ -11,9 +12,33 @@ document.addEventListener('DOMContentLoaded', () => {
   // 5분마다 자동 새로고침
   setInterval(() => {
     loadStats();
-    loadRankings(currentCategory);
+    if (currentTab === 'latest') {
+      loadRankings(currentCategory);
+    } else {
+      loadOutRank(currentCategory);
+    }
   }, 5 * 60 * 1000);
 });
+
+// 탭 전환
+function switchTab(tab) {
+  currentTab = tab;
+  
+  // 탭 버튼 스타일 변경
+  if (tab === 'latest') {
+    document.getElementById('tabLatest').className = 'text-lg font-bold text-black border-b-2 border-black pb-1';
+    document.getElementById('tabOutrank').className = 'text-lg font-bold text-gray-400 hover:text-black pb-1';
+    document.getElementById('rankingsTab').classList.remove('hidden');
+    document.getElementById('outrankTab').classList.add('hidden');
+    loadRankings(currentCategory);
+  } else {
+    document.getElementById('tabLatest').className = 'text-lg font-bold text-gray-400 hover:text-black pb-1';
+    document.getElementById('tabOutrank').className = 'text-lg font-bold text-black border-b-2 border-black pb-1';
+    document.getElementById('rankingsTab').classList.add('hidden');
+    document.getElementById('outrankTab').classList.remove('hidden');
+    loadOutRank(currentCategory);
+  }
+}
 
 // 통계 데이터 로드
 async function loadStats() {
@@ -75,15 +100,113 @@ async function loadRankings(category = null) {
     }
   } catch (error) {
     console.error('순위 로드 실패:', error);
-    document.getElementById('rankings').innerHTML = `
+    document.getElementById('rankingsTab').innerHTML = `
       <p class="text-red-600 text-center py-8 text-sm">데이터를 불러오는데 실패했습니다.</p>
     `;
   }
 }
 
+// Out Rank 데이터 로드
+async function loadOutRank(category = null) {
+  try {
+    currentCategory = category;
+    
+    let url = '/api/hasie/out-rank';
+    if (category) {
+      url += `?category=${encodeURIComponent(category)}`;
+    }
+    
+    const response = await axios.get(url);
+    
+    if (response.data.success) {
+      displayOutRank(response.data.out_rankings);
+    }
+  } catch (error) {
+    console.error('Out Rank 로드 실패:', error);
+    document.getElementById('outrankTab').innerHTML = `
+      <p class="text-red-600 text-center py-8 text-sm">데이터를 불러오는데 실패했습니다.</p>
+    `;
+  }
+}
+
+// Out Rank 데이터 표시
+function displayOutRank(outRankings) {
+  const container = document.getElementById('outrankTab');
+  
+  if (outRankings.length === 0) {
+    container.innerHTML = `
+      <p class="text-gray-500 text-center py-8 text-sm">순위권 이탈 제품이 없습니다.</p>
+    `;
+    return;
+  }
+  
+  // 카테고리별로 그룹화
+  const groupedByCategory = {};
+  outRankings.forEach(item => {
+    if (!groupedByCategory[item.category]) {
+      groupedByCategory[item.category] = [];
+    }
+    groupedByCategory[item.category].push(item);
+  });
+  
+  // HTML 생성
+  let html = '';
+  
+  for (const [category, items] of Object.entries(groupedByCategory)) {
+    html += `
+      <div class="p-4 bg-gray-50 border-b border-gray-200">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-black">${category}</h3>
+          <span class="text-xs text-gray-500">${items.length}개</span>
+        </div>
+      </div>
+    `;
+    
+    items.forEach(item => {
+      html += `
+        <div class="p-4 hover:bg-gray-50 transition">
+          <div class="flex items-start gap-4">
+            <!-- 마지막 순위 -->
+            <div class="flex-shrink-0 w-16 text-center">
+              <div class="text-2xl font-bold text-gray-400">${item.last_rank}</div>
+              <div class="text-xs text-gray-400">위</div>
+            </div>
+            
+            <!-- Out 표시 -->
+            <div class="flex-shrink-0 w-16 text-center pt-1">
+              <span class="text-xs font-bold text-red-600">OUT</span>
+            </div>
+            
+            <!-- 상품 정보 -->
+            <div class="flex-1 min-w-0">
+              <h4 class="text-sm font-medium text-gray-600 mb-2 line-clamp-2">
+                ${escapeHtml(item.product_name)}
+              </h4>
+              <div class="flex items-center gap-3 text-xs text-gray-500">
+                <a href="${item.product_link}" 
+                   target="_blank" 
+                   class="hover:text-black transition">
+                  상품 보기 →
+                </a>
+                <button onclick="showProductTrends('${escapeHtml(item.product_link)}', '${escapeHtml(item.product_name)}')"
+                        class="hover:text-black transition">
+                  동향 차트
+                </button>
+                <span>이탈: ${formatDate(item.out_rank_date)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+  }
+  
+  container.innerHTML = html;
+}
+
 // 순위 데이터 표시 (심플 테이블 스타일)
 function displayRankings(rankings) {
-  const container = document.getElementById('rankings');
+  const container = document.getElementById('rankingsTab');
   
   if (rankings.length === 0) {
     container.innerHTML = `
