@@ -344,3 +344,136 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// 실시간 연동 모달 표시
+function showImportModal() {
+  const modalHtml = `
+    <div id="importModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onclick="closeImportModal(event)">
+      <div class="bg-white max-w-2xl w-full" onclick="event.stopPropagation()">
+        <!-- 헤더 -->
+        <div class="border-b border-gray-200 p-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-bold text-black">실시간 연동</h3>
+            <button onclick="document.getElementById('importModal').remove()" 
+                    class="text-gray-400 hover:text-black text-xl">
+              ✕
+            </button>
+          </div>
+        </div>
+        
+        <!-- 내용 -->
+        <div class="p-4">
+          <div class="mb-4">
+            <label class="block text-sm font-semibold text-black mb-2">
+              텔레그램 메시지 붙여넣기
+            </label>
+            <textarea 
+              id="messageInput" 
+              rows="12" 
+              class="w-full border border-gray-300 p-3 text-sm font-mono focus:outline-none focus:border-black"
+              placeholder="W컨셉 베스트 아우터
+
+브랜드 : 하시에
+순위 : 9
+상품명 : CASHMERE COLLAR LIGHT DOWN JACKET
+링크 : https://m.wconcept.co.kr/Product/303596201
+
+..."
+            ></textarea>
+          </div>
+          
+          <div class="text-xs text-gray-500 mb-4">
+            💡 텔레그램 채널에서 메시지를 복사해서 위에 붙여넣으세요
+          </div>
+          
+          <!-- 버튼 -->
+          <div class="flex gap-2">
+            <button 
+              onclick="importMessage()" 
+              class="flex-1 px-4 py-2.5 bg-black text-white text-sm hover:bg-gray-800 transition"
+              id="importButton">
+              저장하기
+            </button>
+            <button 
+              onclick="document.getElementById('importModal').remove()" 
+              class="px-4 py-2.5 border border-gray-300 text-sm hover:bg-gray-100 transition">
+              취소
+            </button>
+          </div>
+          
+          <!-- 결과 메시지 -->
+          <div id="importResult" class="mt-4 hidden"></div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  document.getElementById('messageInput').focus();
+}
+
+// 모달 닫기
+function closeImportModal(event) {
+  if (event.target.id === 'importModal') {
+    document.getElementById('importModal').remove();
+  }
+}
+
+// 메시지 임포트 처리
+async function importMessage() {
+  const messageText = document.getElementById('messageInput').value.trim();
+  const button = document.getElementById('importButton');
+  const resultDiv = document.getElementById('importResult');
+  
+  if (!messageText) {
+    showImportResult('메시지를 입력해주세요', 'error');
+    return;
+  }
+  
+  // 버튼 비활성화
+  button.disabled = true;
+  button.textContent = '처리 중...';
+  resultDiv.classList.add('hidden');
+  
+  try {
+    const response = await axios.post('/api/hasie/import', {
+      messageText: messageText
+    });
+    
+    if (response.data.success) {
+      showImportResult(
+        `✓ ${response.data.parsedCount}개 상품이 저장되었습니다 (${response.data.categories.join(', ')})`,
+        'success'
+      );
+      
+      // 2초 후 모달 닫고 데이터 새로고침
+      setTimeout(() => {
+        document.getElementById('importModal').remove();
+        loadStats();
+        loadRankings(currentCategory);
+      }, 2000);
+    } else {
+      showImportResult('✗ ' + response.data.error, 'error');
+    }
+  } catch (error) {
+    console.error('Import error:', error);
+    showImportResult('✗ 데이터 저장에 실패했습니다', 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = '저장하기';
+  }
+}
+
+// 결과 메시지 표시
+function showImportResult(message, type) {
+  const resultDiv = document.getElementById('importResult');
+  resultDiv.classList.remove('hidden');
+  
+  if (type === 'success') {
+    resultDiv.className = 'mt-4 p-3 bg-green-50 border border-green-200 text-green-800 text-sm';
+  } else {
+    resultDiv.className = 'mt-4 p-3 bg-red-50 border border-red-200 text-red-800 text-sm';
+  }
+  
+  resultDiv.textContent = message;
+}

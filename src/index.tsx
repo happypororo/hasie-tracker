@@ -21,6 +21,67 @@ app.use('/static/*', serveStatic({ root: './public' }))
 // ============================================
 
 /**
+ * 수동 메시지 입력 (복사/붙여넣기)
+ * POST /api/hasie/import
+ */
+app.post('/api/hasie/import', async (c) => {
+  try {
+    const { messageText } = await c.req.json();
+    const { DB } = c.env;
+    
+    if (!messageText) {
+      return c.json({ success: false, error: '메시지를 입력해주세요' }, 400);
+    }
+    
+    // 메시지 파싱
+    const rankings = parseMultipleCategoryRankings(messageText);
+    
+    if (rankings.length === 0) {
+      return c.json({ 
+        success: false, 
+        error: '순위 데이터를 찾을 수 없습니다. 메시지 형식을 확인해주세요.'
+      }, 400);
+    }
+    
+    // 트랜잭션으로 데이터 저장
+    const batch = [];
+    
+    // 메시지 로그 저장 (수동 입력은 timestamp를 message_id로 사용)
+    const messageId = Date.now();
+    batch.push(
+      DB.prepare(
+        'INSERT INTO telegram_messages (message_id, message_text, parsed_count) VALUES (?, ?, ?)'
+      ).bind(messageId, messageText, rankings.length)
+    );
+    
+    // 순위 데이터 저장
+    for (const ranking of rankings) {
+      batch.push(
+        DB.prepare(
+          'INSERT INTO hasie_rankings (category, rank, product_name, product_link) VALUES (?, ?, ?, ?)'
+        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink)
+      );
+    }
+    
+    await DB.batch(batch);
+    
+    return c.json({
+      success: true,
+      message: '순위 데이터가 저장되었습니다',
+      parsedCount: rankings.length,
+      categories: [...new Set(rankings.map(r => r.category))]
+    });
+    
+  } catch (error: any) {
+    console.error('Import error:', error);
+    return c.json({ 
+      success: false, 
+      error: error.message 
+    }, 500);
+  }
+});
+
+/**
  * 텔레그램 봇 웹훅 수신
  * POST /api/telegram/webhook
  */
@@ -469,6 +530,19 @@ app.get('/', (c) => {
                 <div class="border border-gray-200 p-4">
                     <div class="text-2xl font-bold text-black" id="bestRank">-</div>
                     <div class="text-gray-500 text-xs mt-1">최고 순위</div>
+                </div>
+            </div>
+            
+            <!-- 실시간 연동 버튼 -->
+            <div class="border border-gray-200 p-4 mb-6">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-semibold text-gray-700">실시간 연동</div>
+                    <button onclick="showImportModal()" class="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800 transition">
+                        메시지 입력
+                    </button>
+                </div>
+                <div class="text-xs text-gray-500">
+                    텔레그램 채널의 메시지를 복사해서 붙여넣으세요
                 </div>
             </div>
             
