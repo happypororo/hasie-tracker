@@ -348,7 +348,7 @@ async function showProductTrends(productLink, productName) {
                 <tbody>
                   ${data.trends.map(trend => `
                     <tr class="border-b border-gray-100">
-                      <td class="py-2 px-3 text-gray-600">${formatDate(trend.created_at)}</td>
+                      <td class="py-2 px-3 text-gray-600">${formatDateTime(trend.created_at)}</td>
                       <td class="text-center py-2 px-3 font-semibold">${trend.rank}위</td>
                       <td class="text-center py-2 px-3">${getRankChangeIndicator(trend.rank_change, trend.change_type)}</td>
                     </tr>
@@ -380,7 +380,12 @@ function closeModal(event) {
 function drawTrendsChart(trends) {
   const ctx = document.getElementById('trendsChart').getContext('2d');
   
-  const labels = trends.map(t => formatDate(t.created_at));
+  // 차트용 짧은 날짜 형식 (MM.DD HH:MM)
+  const labels = trends.map(t => {
+    const fullTime = formatDateTime(t.created_at);
+    // "2025.10.20 16:44" → "10.20 16:44"
+    return fullTime.substring(5);
+  });
   const data = trends.map(t => t.rank);
   
   new Chart(ctx, {
