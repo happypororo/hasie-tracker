@@ -55,6 +55,11 @@ async function loadStats() {
       
       const bestRank = Math.min(...stats.map(s => s.best_rank));
       document.getElementById('bestRank').textContent = `${bestRank}위`;
+      
+      // 마지막 업데이트 시간 표시
+      if (response.data.last_update) {
+        document.getElementById('lastUpdate').textContent = formatDateTime(response.data.last_update);
+      }
     }
   } catch (error) {
     console.error('통계 로드 실패:', error);
@@ -444,7 +449,7 @@ function drawTrendsChart(trends) {
   });
 }
 
-// 날짜 포맷
+// 날짜 포맷 (상대 시간)
 function formatDate(dateString) {
   const date = new Date(dateString);
   const now = new Date();
@@ -461,6 +466,45 @@ function formatDate(dateString) {
   });
 }
 
+// 날짜/시간 포맷 (절대 시간)
+function formatDateTime(dateString) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000);
+  
+  // 1분 이내
+  if (diff < 60) return '방금 전';
+  
+  // 1시간 이내
+  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+  
+  // 24시간 이내 - 오늘 HH:MM
+  if (diff < 86400) {
+    return `오늘 ${date.toLocaleTimeString('ko-KR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    })}`;
+  }
+  
+  // 7일 이내
+  if (diff < 604800) {
+    return `${Math.floor(diff / 86400)}일 전`;
+  }
+  
+  // 그 이상 - YYYY.MM.DD HH:MM
+  return date.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).replace(/\. /g, '.').replace(/\.$/, '') + ' ' + 
+  date.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+}
+
 // HTML 이스케이프
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -470,6 +514,9 @@ function escapeHtml(text) {
 
 // 실시간 연동 모달 표시
 function showImportModal() {
+  const now = new Date();
+  const defaultDateTime = now.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+  
   const modalHtml = `
     <div id="importModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onclick="closeImportModal(event)">
       <div class="bg-white max-w-2xl w-full" onclick="event.stopPropagation()">
@@ -486,13 +533,29 @@ function showImportModal() {
         
         <!-- 내용 -->
         <div class="p-4">
+          <!-- 메시지 시간 입력 -->
+          <div class="mb-4">
+            <label class="block text-sm font-semibold text-black mb-2">
+              메시지 전송 시간 (텔레그램에서 확인)
+            </label>
+            <input 
+              type="datetime-local" 
+              id="messageDateTime" 
+              value="${defaultDateTime}"
+              class="w-full border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-black"
+            />
+            <div class="text-xs text-gray-400 mt-1">
+              텔레그램 메시지가 전송된 정확한 시간을 입력하세요
+            </div>
+          </div>
+          
           <div class="mb-4">
             <label class="block text-sm font-semibold text-black mb-2">
               텔레그램 메시지 붙여넣기
             </label>
             <textarea 
               id="messageInput" 
-              rows="12" 
+              rows="10" 
               class="w-full border border-gray-300 p-3 text-sm font-mono focus:outline-none focus:border-black"
               placeholder="W컨셉 베스트 아우터
 
@@ -545,6 +608,7 @@ function closeImportModal(event) {
 // 메시지 임포트 처리
 async function importMessage() {
   const messageText = document.getElementById('messageInput').value.trim();
+  const messageDateTime = document.getElementById('messageDateTime').value;
   const button = document.getElementById('importButton');
   const resultDiv = document.getElementById('importResult');
   
@@ -553,6 +617,9 @@ async function importMessage() {
     return;
   }
   
+  // 메시지 시간을 ISO 형식으로 변환
+  const messageDate = messageDateTime ? new Date(messageDateTime).toISOString() : new Date().toISOString();
+  
   // 버튼 비활성화
   button.disabled = true;
   button.textContent = '처리 중...';
@@ -560,7 +627,8 @@ async function importMessage() {
   
   try {
     const response = await axios.post('/api/hasie/import', {
-      messageText: messageText
+      messageText: messageText,
+      messageDate: messageDate
     });
     
     if (response.data.success) {

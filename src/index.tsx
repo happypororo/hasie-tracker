@@ -26,12 +26,15 @@ app.use('/static/*', serveStatic({ root: './public' }))
  */
 app.post('/api/hasie/import', async (c) => {
   try {
-    const { messageText } = await c.req.json();
+    const { messageText, messageDate } = await c.req.json();
     const { DB } = c.env;
     
     if (!messageText) {
       return c.json({ success: false, error: '메시지를 입력해주세요' }, 400);
     }
+    
+    // 메시지 시간 (없으면 현재 시간 사용)
+    const msgDate = messageDate || new Date().toISOString();
     
     // 메시지 파싱
     const rankings = parseMultipleCategoryRankings(messageText);
@@ -83,16 +86,16 @@ app.post('/api/hasie/import', async (c) => {
     const messageId = Date.now();
     batch.push(
       DB.prepare(
-        'INSERT INTO telegram_messages (message_id, message_text, parsed_count) VALUES (?, ?, ?)'
-      ).bind(messageId, messageText, rankings.length)
+        'INSERT INTO telegram_messages (message_id, message_text, parsed_count, message_date) VALUES (?, ?, ?, ?)'
+      ).bind(messageId, messageText, rankings.length, msgDate)
     );
     
     // 새로운 순위 데이터 저장 (out_rank = 0, 순위권 내)
     for (const ranking of rankings) {
       batch.push(
         DB.prepare(
-          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank) VALUES (?, ?, ?, ?, 0)'
-        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink)
+          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, message_date) VALUES (?, ?, ?, ?, 0, ?)'
+        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink, msgDate)
       );
     }
     
@@ -319,15 +322,24 @@ app.get('/api/hasie/stats', async (c) => {
         COUNT(*) as total_count,
         MIN(rank) as best_rank,
         AVG(rank) as avg_rank,
-        MAX(created_at) as last_updated
+        MAX(message_date) as last_message_date
       FROM hasie_rankings
+      WHERE out_rank = 0
       GROUP BY category
       ORDER BY category
     `).all();
     
+    // 전체 마지막 업데이트 시간
+    const lastUpdate = await DB.prepare(`
+      SELECT MAX(message_date) as last_message_date
+      FROM hasie_rankings
+      WHERE out_rank = 0
+    `).first();
+    
     return c.json({
       success: true,
-      stats: results
+      stats: results,
+      last_update: lastUpdate?.last_message_date
     });
     
   } catch (error: any) {
@@ -603,8 +615,16 @@ app.get('/', (c) => {
         <div class="max-w-7xl mx-auto px-4 py-6">
             <!-- 헤더 -->
             <div class="border-b border-gray-200 pb-6 mb-6">
-                <h1 class="text-3xl font-bold text-black mb-2">하시에 순위 트래커</h1>
-                <p class="text-gray-500 text-sm">W컨셉 베스트 순위 실시간 모니터링</p>
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h1 class="text-3xl font-bold text-black mb-2">하시에 순위 트래커</h1>
+                        <p class="text-gray-500 text-sm">W컨셉 베스트 순위 실시간 모니터링</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-gray-400">마지막 업데이트</div>
+                        <div id="lastUpdate" class="text-sm font-semibold text-black mt-1">-</div>
+                    </div>
+                </div>
             </div>
             
             <!-- 통계 카드 -->
