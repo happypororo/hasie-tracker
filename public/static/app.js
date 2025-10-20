@@ -472,7 +472,15 @@ function formatDate(dateString) {
 
 // 날짜/시간 포맷 (절대 시간, 한국 시간대)
 function formatDateTime(dateString) {
-  const date = new Date(dateString);
+  // DB에서 온 시간은 UTC 시간이므로 명시적으로 UTC로 파싱
+  let date;
+  if (dateString.includes('T') && dateString.includes('Z')) {
+    // ISO 8601 형식 (예: 2025-10-20T07:44:21.000Z)
+    date = new Date(dateString);
+  } else {
+    // 타임존 없는 형식 (예: 2025-10-20 07:44:22) - UTC로 강제 해석
+    date = new Date(dateString + 'Z');
+  }
   
   // 한국 시간대(Asia/Seoul)로 변환
   const koreaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
