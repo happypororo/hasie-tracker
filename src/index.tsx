@@ -108,35 +108,37 @@ app.post('/api/telegram/webhook', async (c) => {
 // ============================================
 
 /**
- * 최신 순위 조회
- * GET /api/hasie/latest?category=아우터&limit=10
+ * 최신 순위 조회 (각 제품의 최신 순위만)
+ * GET /api/hasie/latest?category=아우터
  */
 app.get('/api/hasie/latest', async (c) => {
   try {
     const { DB } = c.env;
     const category = c.req.query('category');
-    const limit = parseInt(c.req.query('limit') || '50', 10);
     
+    // 각 제품의 최신 순위만 가져오기
     let query = `
       SELECT 
-        id,
-        category,
-        rank,
-        product_name,
-        product_link,
-        created_at
-      FROM hasie_rankings
+        h1.id,
+        h1.category,
+        h1.rank,
+        h1.product_name,
+        h1.product_link,
+        h1.created_at
+      FROM hasie_rankings h1
+      INNER JOIN (
+        SELECT product_link, MAX(created_at) as max_date
+        FROM hasie_rankings
+        ${category ? 'WHERE category = ?' : ''}
+        GROUP BY product_link
+      ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+      ORDER BY h1.rank ASC
     `;
     
     const params: any[] = [];
-    
     if (category) {
-      query += ' WHERE category = ?';
       params.push(category);
     }
-    
-    query += ' ORDER BY created_at DESC, rank ASC LIMIT ?';
-    params.push(limit);
     
     const stmt = DB.prepare(query);
     const { results } = await stmt.bind(...params).all();
@@ -341,44 +343,45 @@ app.get('/api/hasie/product-trends', async (c) => {
 });
 
 /**
- * 최신 순위에 순위 변동 정보 포함
- * GET /api/hasie/latest-with-changes?category=아우터&limit=50
+ * 최신 순위에 순위 변동 정보 포함 (각 제품의 최신 순위만)
+ * GET /api/hasie/latest-with-changes?category=아우터
  */
 app.get('/api/hasie/latest-with-changes', async (c) => {
   try {
     const { DB } = c.env;
     const category = c.req.query('category');
-    const limit = parseInt(c.req.query('limit') || '50', 10);
     
-    // 최신 데이터 조회
+    // 각 제품의 최신 순위만 가져오기
     let query = `
       SELECT 
-        id,
-        category,
-        rank,
-        product_name,
-        product_link,
-        created_at
-      FROM hasie_rankings
+        h1.id,
+        h1.category,
+        h1.rank,
+        h1.product_name,
+        h1.product_link,
+        h1.created_at
+      FROM hasie_rankings h1
+      INNER JOIN (
+        SELECT product_link, MAX(created_at) as max_date
+        FROM hasie_rankings
+        ${category ? 'WHERE category = ?' : ''}
+        GROUP BY product_link
+      ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+      ORDER BY h1.rank ASC
     `;
     
     const params: any[] = [];
-    
     if (category) {
-      query += ' WHERE category = ?';
       params.push(category);
     }
-    
-    query += ' ORDER BY created_at DESC, rank ASC LIMIT ?';
-    params.push(limit);
     
     const stmt = DB.prepare(query);
     const { results } = await stmt.bind(...params).all();
     
-    // 각 제품의 이전 순위 조회
+    // 각 제품의 바로 이전 순위 조회
     const rankingsWithChanges = await Promise.all(
       results.map(async (item: any) => {
-        // 이전 순위 조회 (현재보다 이전 데이터)
+        // 바로 이전 순위 조회 (현재보다 이전 데이터)
         const prevRankingResult = await DB.prepare(`
           SELECT rank
           FROM hasie_rankings
@@ -407,7 +410,8 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
         return {
           ...item,
           rank_change: rankChange,
-          change_type: changeType
+          change_type: changeType,
+          prev_rank: prevRankingResult ? prevRankingResult.rank : null
         };
       })
     );
@@ -440,55 +444,51 @@ app.get('/', (c) => {
         <title>하시에 순위 트래커</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        </style>
     </head>
-    <body class="bg-gradient-to-br from-purple-50 to-blue-50 min-h-screen">
-        <div class="container mx-auto px-4 py-8">
+    <body class="bg-white min-h-screen">
+        <div class="max-w-7xl mx-auto px-4 py-6">
             <!-- 헤더 -->
-            <div class="text-center mb-8">
-                <h1 class="text-4xl font-bold text-purple-900 mb-2">
-                    <i class="fas fa-chart-line mr-2"></i>
-                    하시에 순위 트래커
-                </h1>
-                <p class="text-gray-600">W컨셉 베스트 순위 실시간 모니터링</p>
+            <div class="border-b border-gray-200 pb-6 mb-6">
+                <h1 class="text-3xl font-bold text-black mb-2">하시에 순위 트래커</h1>
+                <p class="text-gray-500 text-sm">W컨셉 베스트 순위 실시간 모니터링</p>
             </div>
             
             <!-- 통계 카드 -->
-            <div id="stats" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-                    <div class="text-3xl font-bold text-purple-600" id="totalCategories">-</div>
-                    <div class="text-gray-600 mt-2">추적 카테고리</div>
+            <div id="stats" class="grid grid-cols-3 gap-4 mb-6">
+                <div class="border border-gray-200 p-4">
+                    <div class="text-2xl font-bold text-black" id="totalCategories">-</div>
+                    <div class="text-gray-500 text-xs mt-1">추적 카테고리</div>
                 </div>
-                <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-                    <div class="text-3xl font-bold text-blue-600" id="totalRankings">-</div>
-                    <div class="text-gray-600 mt-2">총 순위 데이터</div>
+                <div class="border border-gray-200 p-4">
+                    <div class="text-2xl font-bold text-black" id="totalRankings">-</div>
+                    <div class="text-gray-500 text-xs mt-1">추적 제품수</div>
                 </div>
-                <div class="bg-white rounded-lg shadow-lg p-6 text-center">
-                    <div class="text-3xl font-bold text-green-600" id="bestRank">-</div>
-                    <div class="text-gray-600 mt-2">최고 순위</div>
+                <div class="border border-gray-200 p-4">
+                    <div class="text-2xl font-bold text-black" id="bestRank">-</div>
+                    <div class="text-gray-500 text-xs mt-1">최고 순위</div>
                 </div>
             </div>
             
             <!-- 카테고리 선택 -->
-            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">
-                    <i class="fas fa-filter mr-2"></i>
-                    카테고리 필터
-                </h2>
+            <div class="border border-gray-200 p-4 mb-6">
+                <div class="text-sm font-semibold text-gray-700 mb-3">카테고리 필터</div>
                 <div id="categoryButtons" class="flex flex-wrap gap-2">
-                    <button onclick="loadRankings()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                    <button onclick="loadRankings()" class="px-3 py-1.5 text-sm bg-black text-white hover:bg-gray-800 transition">
                         전체
                     </button>
                 </div>
             </div>
             
             <!-- 최신 순위 -->
-            <div class="bg-white rounded-lg shadow-lg p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">
-                    <i class="fas fa-trophy mr-2"></i>
-                    최신 순위
-                </h2>
-                <div id="rankings" class="space-y-4">
-                    <p class="text-gray-500 text-center py-8">로딩 중...</p>
+            <div class="border border-gray-200">
+                <div class="border-b border-gray-200 px-4 py-3">
+                    <h2 class="text-lg font-bold text-black">최신 순위</h2>
+                </div>
+                <div id="rankings" class="divide-y divide-gray-200">
+                    <p class="text-gray-500 text-center py-8 text-sm">로딩 중...</p>
                 </div>
             </div>
         </div>
