@@ -468,36 +468,21 @@ function drawTrendsChart(trends) {
           grid: {
             color: function(context) {
               // 210 (OUT) 위치의 그리드는 빨간색
-              if (context.tick.value === 210) {
+              if (context.tick && context.tick.value === 210) {
                 return 'rgba(220, 38, 38, 0.3)';
               }
               return 'rgba(0, 0, 0, 0.1)';
             },
             lineWidth: function(context) {
               // 210 (OUT) 위치의 그리드는 더 두껍게
-              if (context.tick.value === 210) {
+              if (context.tick && context.tick.value === 210) {
                 return 2;
               }
               return 1;
             }
           },
           ticks: {
-            color: function(context) {
-              // 210 (OUT) 위치의 라벨은 빨간색
-              if (context.tick.value === 210) {
-                return '#dc2626';
-              }
-              return '#000';
-            },
-            font: function(context) {
-              // 210 (OUT) 위치의 라벨은 볼드
-              if (context.tick.value === 210) {
-                return {
-                  weight: 'bold'
-                };
-              }
-              return {};
-            },
+            color: '#000',
             callback: function(value) {
               if (value === 210) {
                 return 'OUT';
