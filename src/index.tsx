@@ -59,7 +59,8 @@ app.post('/api/hasie/import', async (c) => {
     const allProductLinks = rankings.map(r => r.productLink);
     
     if (allProductLinks.length > 0) {
-      // 현재 순위권(out_rank=0)에 있는 제품 중 이번 메시지에 없는 모든 제품을 Out Rank로
+      // 현재 순위권(out_rank=0)에 있는 제품 중,
+      // 이번 메시지 시간과 다른 시간대의 제품만 Out Rank로 이동
       const placeholders = allProductLinks.map(() => '?').join(',');
       batch.push(
         DB.prepare(`
@@ -74,7 +75,8 @@ app.post('/api/hasie/import', async (c) => {
           ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
           WHERE h1.out_rank = 0
             AND h1.product_link NOT IN (${placeholders})
-        `).bind(msgDate, ...allProductLinks)
+            AND h1.message_date != ?
+        `).bind(msgDate, ...allProductLinks, msgDate)
       );
     }
     
@@ -175,7 +177,8 @@ app.post('/api/telegram/webhook', async (c) => {
     const allProductLinks = rankings.map(r => r.productLink);
     
     if (allProductLinks.length > 0) {
-      // 현재 순위권(out_rank=0)에 있는 제품 중 이번 메시지에 없는 모든 제품을 Out Rank로
+      // 현재 순위권(out_rank=0)에 있는 제품 중,
+      // 이번 메시지 시간과 다른 시간대의 제품만 Out Rank로 이동
       const placeholders = allProductLinks.map(() => '?').join(',');
       batch.push(
         DB.prepare(`
@@ -190,7 +193,8 @@ app.post('/api/telegram/webhook', async (c) => {
           ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
           WHERE h1.out_rank = 0
             AND h1.product_link NOT IN (${placeholders})
-        `).bind(messageDate, ...allProductLinks)
+            AND h1.message_date != ?
+        `).bind(messageDate, ...allProductLinks, messageDate)
       );
     }
     
