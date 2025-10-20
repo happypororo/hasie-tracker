@@ -2,18 +2,45 @@
 
 텔레그램 채널에서 W컨셉 '하시에' 브랜드의 순위 정보를 자동으로 수집하고 트래킹하는 웹 애플리케이션
 
-## 🎯 현재 버전: v1.0
+## 🎯 현재 버전: v1.1
 
 **버전 정보**
-- **버전명**: v1.0 (Global Out Rank + Timezone Fix)
-- **Git 태그**: `v1.0`
+- **버전명**: v1.1 (Export + Password + Out Chart + Minute-Precision Fix)
+- **Git 태그**: `v1.1`
 - **완성일**: 2025-10-20
-- **커밋 해시**: `c4379ab`
-- **백업 파일**: [hasie-tracker-v1.0.tar.gz](https://page.gensparksite.com/project_backups/hasie-tracker-v1.0.tar.gz)
+- **주요 기능**:
+  - ✅ 비밀번호 보호 초기화 (0890)
+  - ✅ 전체 데이터 CSV 내보내기
+  - ✅ 개별 제품 히스토리 CSV 내보내기
+  - ✅ Out Rank 차트 시각화 (빨간색, 210위 표시)
+  - ✅ 분(minute) 단위 메시지 비교 로직 (동시 가져오기 지원)
 
 ## 📚 버전 히스토리
 
-### v1.0 (2025-10-20) - **현재 버전**
+### v1.1 (2025-10-20) - **현재 버전**
+**주요 기능**:
+- ✅ 비밀번호 보호 초기화 기능 (0890)
+- ✅ CSV 내보내기 (전체 데이터 + 개별 제품)
+- ✅ Out Rank 차트 시각화 (빨간색, 210위 표시)
+- ✅ 분(minute) 단위 메시지 비교 (동시 가져오기 지원)
+- ✅ UTF-8 BOM 인코딩으로 한글 지원
+
+**변경 사항**:
+- 초기화 버튼에 비밀번호 인증 추가 (0890)
+- 전체 제품 순위 히스토리 CSV 다운로드
+- 개별 제품 순위 히스토리 CSV 다운로드
+- 차트에서 Out Rank를 210위에 빨간색으로 표시
+- Out Rank 로직을 분(minute) 단위 비교로 개선
+- 동일 분(minute) 내 여러 카테고리 동시 가져오기 지원
+
+**버그 수정**:
+- 차트 렌더링 오류 수정 (context.tick null 체크)
+- 순차적 카테고리 가져오기 시 Out Rank 이동 방지
+- 같은 시간(분) 내 가져온 제품들이 Out Rank로 가는 문제 해결
+
+**Git 태그**: `v1.1`
+
+### v1.0 (2025-10-20) - 이전 버전
 **주요 기능**:
 - ✅ 글로벌 Out Rank 로직 (모든 카테고리 통합 처리)
 - ✅ 한국 시간대(KST) 정확한 표시
@@ -87,10 +114,24 @@ cd home/user/webapp && npm install
 - 카테고리별 Out Rank 추적
 
 ### 7. **데이터 관리**
-- **초기화 버튼**: 모든 순위 데이터 삭제
-- 확인 메시지로 안전장치 제공
+- **초기화 버튼**: 비밀번호 보호 (0890)
+- 확인 메시지로 2단계 안전장치 제공
 - 한국 시간대(KST) 표시
 - 텔레그램 메시지 시간 기준 업데이트
+- 분(minute) 단위 메시지 비교로 동시 가져오기 지원
+
+### 8. **CSV 내보내기**
+- **전체 데이터 내보내기**: 모든 제품의 순위 히스토리
+- **개별 제품 내보내기**: 선택한 제품의 순위 히스토리
+- UTF-8 BOM 인코딩으로 한글 지원
+- 카테고리 필터링 지원
+- Excel에서 바로 열기 가능
+
+### 9. **Out Rank 차트 시각화**
+- Out Rank 제품을 차트에 표시 (210위)
+- Out Rank 구간을 빨간색으로 강조
+- Y축에 "OUT" 라벨 표시
+- 일반 순위와 구분되는 시각적 표현
 
 ## 📊 데이터 구조
 
@@ -191,8 +232,12 @@ curl -s "https://api.telegram.org/bot8402879837:AAGaN2uVkkufLo5hDBbDjZORFx_PNjJR
 - `GET /api/hasie/product-trends?product_link=...` - 특정 제품 동향
 - `GET /api/hasie/trends?category=아우터&days=7` - 카테고리 트렌드
 
+### 데이터 내보내기
+- `GET /api/hasie/export/all?category=아우터` - 전체 데이터 CSV 다운로드
+- `GET /api/hasie/export/product?product_link=...` - 개별 제품 CSV 다운로드
+
 ### 데이터 관리
-- `DELETE /api/hasie/reset` - 데이터베이스 초기화
+- `DELETE /api/hasie/reset` - 데이터베이스 초기화 (비밀번호 보호)
 
 ## 🎨 UI/UX 특징
 
@@ -280,11 +325,29 @@ npx wrangler pages deploy dist --project-name webapp
 2. **흑백 디자인**: 정보 집중, 심플함 강조
 3. **+/- 표시**: 직관적인 순위 변동 표현
 4. **테이블 레이아웃**: 스캔하기 쉬운 구조
+5. **분 단위 비교**: 동시 가져오기 시 모든 제품을 최신 순위로 유지
+6. **Out Rank 차트 시각화**: 빨간색으로 순위권 이탈 강조
 
 ### 알려진 제약사항
 - Cloudflare Workers 환경에서 실행 (Node.js API 제한)
 - 10ms CPU 시간 제한 (무료 플랜)
 - 정적 파일은 public/ 디렉토리에 빌드 시 포함
+
+### 주요 이슈 해결
+1. **Out Rank 동시 가져오기 문제**: 
+   - 문제: 여러 카테고리를 같은 시간에 가져오면 일부만 Out Rank로 이동
+   - 원인: 초 단위 타임스탬프 비교로 미세한 시간 차이 감지
+   - 해결: `strftime('%Y-%m-%d %H:%M')` 사용하여 분 단위 비교
+
+2. **차트 렌더링 오류**:
+   - 문제: 차트 클릭 시 "순위 동향을 불러오는데 실패했습니다" 오류
+   - 원인: Chart.js callback에서 context.tick 객체 구조 오해
+   - 해결: ticks callback 단순화, null 체크 추가
+
+3. **Out Rank 차트 표시**:
+   - 문제: Out Rank 제품이 차트에 표시되지 않음
+   - 해결: rank 201을 210으로 매핑, Y축에 "OUT" 라벨 표시
+   - 추가: 빨간색 점과 라인으로 Out Rank 구간 강조
 
 ## 📄 라이선스
 
