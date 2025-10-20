@@ -449,18 +449,22 @@ function drawTrendsChart(trends) {
   });
 }
 
-// 날짜 포맷 (상대 시간)
+// 날짜 포맷 (상대 시간, 한국 시간대 기준)
 function formatDate(dateString) {
   const date = new Date(dateString);
-  const now = new Date();
-  const diff = Math.floor((now - date) / 1000);
+  
+  // 한국 시간대로 변환
+  const koreaDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const koreaNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  
+  const diff = Math.floor((koreaNow - koreaDate) / 1000);
   
   if (diff < 60) return '방금';
   if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}일 전`;
   
-  return date.toLocaleDateString('ko-KR', {
+  return koreaDate.toLocaleDateString('ko-KR', {
     month: 'short',
     day: 'numeric'
   });
