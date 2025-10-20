@@ -1,257 +1,167 @@
-// API 기본 URL
-const API_BASE = '/api';
+// 초간단 하시에 트래커 JavaScript
 
-// 전역 상태
-let categories = [];
+const API_BASE = '/api/hasie';
 let chart = null;
 
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
-  loadCategories();
   loadLatestRankings();
-  loadCrawlLogs();
+  loadCategories();
   initChart();
 });
 
 // ============================================
-// 카테고리 관리
+// 모달 관리
+// ============================================
+
+function showImportModal() {
+  document.getElementById('import-modal').classList.remove('hidden');
+  document.getElementById('telegram-message').focus();
+}
+
+function hideImportModal() {
+  document.getElementById('import-modal').classList.add('hidden');
+  document.getElementById('telegram-message').value = '';
+}
+
+// ============================================
+// 메시지 가져오기
+// ============================================
+
+async function importMessage() {
+  const message = document.getElementById('telegram-message').value;
+
+  if (!message.trim()) {
+    alert('메시지를 입력해주세요!');
+    return;
+  }
+
+  try {
+    const response = await axios.post(`${API_BASE}/import`, { message });
+
+    if (response.data.success) {
+      alert(`✅ ${response.data.message}`);
+      hideImportModal();
+      
+      // 화면 새로고침
+      loadLatestRankings();
+      loadCategories();
+    } else {
+      alert(`❌ ${response.data.error}`);
+    }
+  } catch (error) {
+    console.error('Import error:', error);
+    alert('❌ 가져오기 실패: ' + (error.response?.data?.error || error.message));
+  }
+}
+
+// ============================================
+// 최신 순위 로드
+// ============================================
+
+async function loadLatestRankings() {
+  try {
+    const response = await axios.get(`${API_BASE}/latest`);
+    const rankings = response.data.data;
+
+    if (!rankings || rankings.length === 0) {
+      document.getElementById('latest-rankings').innerHTML = `
+        <div class="text-center py-12 col-span-full">
+          <i class="fas fa-inbox text-gray-300 text-6xl mb-4"></i>
+          <p class="text-gray-500">아직 순위 데이터가 없습니다</p>
+          <p class="text-gray-400 text-sm mt-2">텔레그램 메시지를 붙여넣어주세요</p>
+        </div>
+      `;
+      return;
+    }
+
+    // 카테고리별 그룹화
+    const byCategory = {};
+    rankings.forEach(r => {
+      if (!byCategory[r.category]) {
+        byCategory[r.category] = [];
+      }
+      byCategory[r.category].push(r);
+    });
+
+    // 카드 렌더링
+    let html = '';
+    for (const [category, items] of Object.entries(byCategory)) {
+      items.sort((a, b) => a.rank - b.rank);
+      
+      html += `
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition">
+          <div class="bg-gradient-to-r from-purple-600 to-blue-600 px-4 py-3">
+            <h3 class="text-white font-bold text-lg">${category}</h3>
+            <p class="text-purple-100 text-sm">${items.length}개 상품</p>
+          </div>
+          <div class="p-4 space-y-3">
+            ${items.map(item => {
+              const productId = item.product_link.match(/Product\\/?(\\d+)/)?.[1] || '';
+              return `
+              <a href="${item.product_link}" target="_blank" class="block group">
+                <div class="flex items-start gap-4 p-4 bg-gray-50 rounded-xl hover:bg-white hover:shadow-md transition-all border border-transparent hover:border-purple-200">
+                  <div class="flex-shrink-0 relative">
+                    <div class="w-24 h-24 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl flex flex-col items-center justify-center text-white shadow-lg overflow-hidden group-hover:scale-105 transition-transform">
+                      <div class="text-xs opacity-90 font-medium mb-1">하시에</div>
+                      <div class="text-3xl font-bold">${item.rank}</div>
+                      <div class="text-xs opacity-90 mt-1">순위</div>
+                      ${productId ? `<div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-30 text-white text-[10px] text-center py-0.5">#${productId}</div>` : ''}
+                    </div>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-2">
+                      <span class="text-xs text-gray-500">
+                        <i class="far fa-clock mr-1"></i>${formatDate(item.created_at)}
+                      </span>
+                      <span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
+                        ${item.rank}위
+                      </span>
+                    </div>
+                    <p class="text-sm font-semibold text-gray-900 line-clamp-2 mb-3 group-hover:text-purple-600 transition leading-snug">${item.product_name}</p>
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center text-xs text-blue-600 group-hover:text-blue-700 font-medium">
+                        <i class="fas fa-shopping-bag mr-1"></i>
+                        <span>W컨셉에서 보기</span>
+                      </div>
+                      <i class="fas fa-arrow-right text-gray-400 group-hover:text-purple-500 group-hover:translate-x-1 transition"></i>
+                    </div>
+                  </div>
+                </div>
+              </a>
+            `}).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    document.getElementById('latest-rankings').innerHTML = html;
+  } catch (error) {
+    console.error('Failed to load rankings:', error);
+    document.getElementById('latest-rankings').innerHTML = `
+      <div class="text-center py-12 col-span-full">
+        <i class="fas fa-exclamation-triangle text-red-400 text-6xl mb-4"></i>
+        <p class="text-gray-500">순위를 불러올 수 없습니다</p>
+      </div>
+    `;
+  }
+}
+
+// ============================================
+// 카테고리 로드
 // ============================================
 
 async function loadCategories() {
   try {
     const response = await axios.get(`${API_BASE}/categories`);
-    categories = response.data.data;
-    
-    renderCategories();
-    updateCategorySelect();
+    const categories = response.data.data;
+
+    const select = document.getElementById('chart-category');
+    select.innerHTML = '<option value="">카테고리 선택...</option>' +
+      categories.map(c => `<option value="${c.category}">${c.category}</option>`).join('');
   } catch (error) {
     console.error('Failed to load categories:', error);
-    showError('카테고리 로드 실패');
   }
-}
-
-function renderCategories() {
-  const container = document.getElementById('categories-list');
-  
-  if (categories.length === 0) {
-    container.innerHTML = `
-      <div class="text-center py-8 text-gray-500">
-        <i class="fas fa-inbox text-4xl mb-2"></i>
-        <p>등록된 카테고리가 없습니다</p>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = `
-    <table class="min-w-full divide-y divide-gray-200">
-      <thead class="bg-gray-50">
-        <tr>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">카테고리</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">URL</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">상태</th>
-          <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">작업</th>
-        </tr>
-      </thead>
-      <tbody class="bg-white divide-y divide-gray-200">
-        ${categories.map(cat => `
-          <tr>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <div class="text-sm font-medium text-gray-900">${cat.name}</div>
-            </td>
-            <td class="px-6 py-4">
-              <div class="text-sm text-gray-500 truncate max-w-md" title="${cat.url}">
-                ${cat.url}
-              </div>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span class="px-2 py-1 text-xs rounded-full ${cat.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                ${cat.active ? '활성' : '비활성'}
-              </span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-              <button onclick="crawlCategory(${cat.id})" class="text-blue-600 hover:text-blue-900 mr-3" title="크롤링">
-                <i class="fas fa-sync-alt"></i>
-              </button>
-              <button onclick="toggleCategory(${cat.id}, ${cat.active})" class="text-yellow-600 hover:text-yellow-900 mr-3" title="${cat.active ? '비활성화' : '활성화'}">
-                <i class="fas fa-${cat.active ? 'pause' : 'play'}"></i>
-              </button>
-              <button onclick="deleteCategory(${cat.id})" class="text-red-600 hover:text-red-900" title="삭제">
-                <i class="fas fa-trash"></i>
-              </button>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-function updateCategorySelect() {
-  const select = document.getElementById('chart-category');
-  select.innerHTML = '<option value="">카테고리 선택...</option>' +
-    categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
-}
-
-function showAddCategory() {
-  document.getElementById('add-category-modal').classList.remove('hidden');
-}
-
-function hideAddCategory() {
-  document.getElementById('add-category-modal').classList.add('hidden');
-  document.getElementById('new-category-name').value = '';
-  document.getElementById('new-category-url').value = '';
-}
-
-async function addCategory() {
-  const name = document.getElementById('new-category-name').value.trim();
-  const url = document.getElementById('new-category-url').value.trim();
-
-  if (!name || !url) {
-    alert('이름과 URL을 모두 입력해주세요');
-    return;
-  }
-
-  try {
-    await axios.post(`${API_BASE}/categories`, { name, url });
-    hideAddCategory();
-    loadCategories();
-    showSuccess('카테고리가 추가되었습니다');
-  } catch (error) {
-    console.error('Failed to add category:', error);
-    showError('카테고리 추가 실패');
-  }
-}
-
-async function toggleCategory(id, currentActive) {
-  try {
-    await axios.put(`${API_BASE}/categories/${id}`, {
-      active: currentActive ? 0 : 1
-    });
-    loadCategories();
-    showSuccess(currentActive ? '카테고리가 비활성화되었습니다' : '카테고리가 활성화되었습니다');
-  } catch (error) {
-    console.error('Failed to toggle category:', error);
-    showError('카테고리 상태 변경 실패');
-  }
-}
-
-async function deleteCategory(id) {
-  if (!confirm('정말 이 카테고리를 삭제하시겠습니까?')) {
-    return;
-  }
-
-  try {
-    await axios.delete(`${API_BASE}/categories/${id}`);
-    loadCategories();
-    showSuccess('카테고리가 삭제되었습니다');
-  } catch (error) {
-    console.error('Failed to delete category:', error);
-    showError('카테고리 삭제 실패');
-  }
-}
-
-// ============================================
-// 크롤링
-// ============================================
-
-async function crawlCategory(id) {
-  const btn = event.target.closest('button');
-  const originalHTML = btn.innerHTML;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-  btn.disabled = true;
-
-  try {
-    const response = await axios.post(`${API_BASE}/crawl/${id}`);
-    showSuccess(response.data.message || '크롤링 완료');
-    loadLatestRankings();
-    loadCrawlLogs();
-  } catch (error) {
-    console.error('Failed to crawl:', error);
-    showError('크롤링 실패: ' + (error.response?.data?.error || error.message));
-  } finally {
-    btn.innerHTML = originalHTML;
-    btn.disabled = false;
-  }
-}
-
-async function crawlAll() {
-  const btn = event.target;
-  const originalHTML = btn.innerHTML;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>크롤링 중...';
-  btn.disabled = true;
-
-  try {
-    const response = await axios.post(`${API_BASE}/crawl/all`);
-    showSuccess(response.data.message || '전체 크롤링 완료');
-    loadLatestRankings();
-    loadCrawlLogs();
-  } catch (error) {
-    console.error('Failed to crawl all:', error);
-    showError('크롤링 실패: ' + (error.response?.data?.error || error.message));
-  } finally {
-    btn.innerHTML = originalHTML;
-    btn.disabled = false;
-  }
-}
-
-// ============================================
-// 순위 표시
-// ============================================
-
-async function loadLatestRankings() {
-  try {
-    const response = await axios.get(`${API_BASE}/rankings/hasie/latest`);
-    const rankings = response.data.data;
-    
-    renderLatestRankings(rankings);
-  } catch (error) {
-    console.error('Failed to load latest rankings:', error);
-    document.getElementById('latest-rankings').innerHTML = `
-      <div class="text-center py-8 col-span-full text-red-600">
-        <i class="fas fa-exclamation-triangle text-4xl mb-2"></i>
-        <p>순위 정보를 불러올 수 없습니다</p>
-      </div>
-    `;
-  }
-}
-
-function renderLatestRankings(rankings) {
-  const container = document.getElementById('latest-rankings');
-  
-  if (rankings.length === 0) {
-    container.innerHTML = `
-      <div class="text-center py-8 col-span-full text-gray-500">
-        <i class="fas fa-search text-4xl mb-2"></i>
-        <p>아직 크롤링된 데이터가 없습니다</p>
-        <button onclick="crawlAll()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-          지금 크롤링하기
-        </button>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = rankings.map(r => {
-    const rankClass = r.rank_position <= 10 ? 'bg-yellow-100 text-yellow-800' :
-                      r.rank_position <= 30 ? 'bg-green-100 text-green-800' :
-                      'bg-gray-100 text-gray-800';
-    
-    return `
-      <div class="bg-white rounded-lg shadow p-4 border-l-4 ${r.rank_position <= 10 ? 'border-yellow-400' : 'border-gray-300'}">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="font-medium text-gray-900">${r.category_name}</h3>
-          <span class="px-3 py-1 text-2xl font-bold ${rankClass} rounded-lg">
-            ${r.rank_position}위
-          </span>
-        </div>
-        <p class="text-sm text-gray-500">
-          <i class="fas fa-clock mr-1"></i>
-          ${formatDate(r.crawled_at)}
-        </p>
-      </div>
-    `;
-  }).join('');
 }
 
 // ============================================
@@ -265,11 +175,12 @@ function initChart() {
     data: {
       labels: [],
       datasets: [{
-        label: '하시에 순위',
+        label: '순위',
         data: [],
-        borderColor: 'rgb(59, 130, 246)',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        tension: 0.4
+        borderColor: 'rgb(147, 51, 234)',
+        backgroundColor: 'rgba(147, 51, 234, 0.1)',
+        tension: 0.4,
+        fill: true,
       }]
     },
     options: {
@@ -281,21 +192,17 @@ function initChart() {
           beginAtZero: false,
           title: {
             display: true,
-            text: '순위'
+            text: '순위 (낮을수록 좋음)'
           }
         },
         x: {
           title: {
             display: true,
-            text: '시간'
+            text: '날짜'
           }
         }
       },
       plugins: {
-        legend: {
-          display: true,
-          position: 'top'
-        },
         tooltip: {
           callbacks: {
             label: function(context) {
@@ -309,9 +216,9 @@ function initChart() {
 }
 
 async function updateChart() {
-  const categoryId = document.getElementById('chart-category').value;
-  
-  if (!categoryId) {
+  const category = document.getElementById('chart-category').value;
+
+  if (!category) {
     chart.data.labels = [];
     chart.data.datasets[0].data = [];
     chart.update();
@@ -319,84 +226,15 @@ async function updateChart() {
   }
 
   try {
-    const response = await axios.get(`${API_BASE}/rankings/hasie/history?categoryId=${categoryId}&limit=30`);
-    const history = response.data.data.reverse(); // 시간순 정렬
+    const response = await axios.get(`${API_BASE}/history/${encodeURIComponent(category)}?limit=30`);
+    const history = response.data.data;
 
-    chart.data.labels = history.map(h => formatDate(h.crawled_at));
-    chart.data.datasets[0].data = history.map(h => h.rank_position);
+    chart.data.labels = history.map(h => formatDate(h.created_at));
+    chart.data.datasets[0].data = history.map(h => h.rank);
     chart.update();
   } catch (error) {
     console.error('Failed to update chart:', error);
-    showError('차트 업데이트 실패');
   }
-}
-
-// ============================================
-// 로그
-// ============================================
-
-async function loadCrawlLogs() {
-  try {
-    const response = await axios.get(`${API_BASE}/logs?limit=20`);
-    const logs = response.data.data;
-    
-    renderCrawlLogs(logs);
-  } catch (error) {
-    console.error('Failed to load logs:', error);
-    document.getElementById('crawl-logs').innerHTML = `
-      <div class="text-center py-8 text-red-600">
-        <i class="fas fa-exclamation-triangle text-4xl mb-2"></i>
-        <p>로그를 불러올 수 없습니다</p>
-      </div>
-    `;
-  }
-}
-
-function renderCrawlLogs(logs) {
-  const container = document.getElementById('crawl-logs');
-  
-  if (logs.length === 0) {
-    container.innerHTML = `
-      <div class="text-center py-8 text-gray-500">
-        <i class="fas fa-inbox text-4xl mb-2"></i>
-        <p>크롤링 로그가 없습니다</p>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = `
-    <table class="min-w-full divide-y divide-gray-200">
-      <thead class="bg-gray-50">
-        <tr>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">시간</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">카테고리</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">상태</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">에러</th>
-        </tr>
-      </thead>
-      <tbody class="bg-white divide-y divide-gray-200">
-        ${logs.map(log => `
-          <tr>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-              ${formatDate(log.crawled_at)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-              ${log.category_name || '-'}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span class="px-2 py-1 text-xs rounded-full ${log.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                ${log.status === 'success' ? '성공' : '실패'}
-              </span>
-            </td>
-            <td class="px-6 py-4 text-sm text-red-600">
-              ${log.error_message || '-'}
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
 }
 
 // ============================================
@@ -405,50 +243,9 @@ function renderCrawlLogs(logs) {
 
 function formatDate(dateString) {
   const date = new Date(dateString);
-  const now = new Date();
-  const diff = now - date;
-  
-  // 1시간 이내
-  if (diff < 3600000) {
-    const minutes = Math.floor(diff / 60000);
-    return `${minutes}분 전`;
-  }
-  
-  // 24시간 이내
-  if (diff < 86400000) {
-    const hours = Math.floor(diff / 3600000);
-    return `${hours}시간 전`;
-  }
-  
-  // 그 외
-  return date.toLocaleString('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
-
-function showSuccess(message) {
-  // 간단한 토스트 알림 (실제로는 toast 라이브러리 사용 권장)
-  const toast = document.createElement('div');
-  toast.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
-  toast.innerHTML = `<i class="fas fa-check-circle mr-2"></i>${message}`;
-  document.body.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.remove();
-  }, 3000);
-}
-
-function showError(message) {
-  const toast = document.createElement('div');
-  toast.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
-  toast.innerHTML = `<i class="fas fa-exclamation-circle mr-2"></i>${message}`;
-  document.body.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.remove();
-  }, 3000);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${month}/${day} ${hours}:${minutes}`;
 }

@@ -168,7 +168,81 @@ app.delete('/api/categories/:id', async (c) => {
 });
 
 /**
+ * POST /api/crawl/all - 모든 활성 카테고리 크롤링
+ * 주의: 이 라우트는 /api/crawl/:categoryId 보다 먼저 정의되어야 합니다!
+ */
+app.post('/api/crawl/all', async (c) => {
+  try {
+    const { results: categories } = await c.env.DB.prepare(
+      'SELECT * FROM categories WHERE active = 1'
+    ).all<Category>();
+
+    const results: CrawlResult[] = [];
+
+    for (const category of categories) {
+      try {
+        const brands = await scrapeWconcept(category.url, c.env);
+        const hasieRank = findHasieRank(brands);
+        const crawledAt = new Date().toISOString();
+
+        // 순위 기록 저장
+        for (const brand of brands) {
+          await c.env.DB.prepare(
+            'INSERT INTO rankings (category_id, brand_name, rank_position, crawled_at) VALUES (?, ?, ?, ?)'
+          )
+            .bind(category.id, brand.name, brand.rank, crawledAt)
+            .run();
+        }
+
+        // 성공 로그
+        await c.env.DB.prepare(
+          'INSERT INTO crawl_logs (category_id, status, crawled_at) VALUES (?, ?, ?)'
+        )
+          .bind(category.id, 'success', crawledAt)
+          .run();
+
+        results.push({
+          category_id: category.id,
+          category_name: category.name,
+          url: category.url,
+          brands: brands,
+          hasie_rank: hasieRank,
+          crawled_at: crawledAt,
+        });
+      } catch (error) {
+        // 실패 로그
+        await c.env.DB.prepare(
+          'INSERT INTO crawl_logs (category_id, status, error_message, crawled_at) VALUES (?, ?, ?, ?)'
+        )
+          .bind(
+            category.id,
+            'failed',
+            error instanceof Error ? error.message : 'Unknown error',
+            new Date().toISOString()
+          )
+          .run();
+      }
+    }
+
+    return c.json<ApiResponse<CrawlResult[]>>({
+      success: true,
+      data: results,
+      message: `${results.length}/${categories.length} 카테고리 크롤링 완료`,
+    });
+  } catch (error) {
+    return c.json<ApiResponse>(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+      500
+    );
+  }
+});
+
+/**
  * POST /api/crawl/:categoryId - 특정 카테고리 크롤링 (수동)
+ * 주의: 이 동적 라우트는 /api/crawl/all 뒤에 정의되어야 합니다!
  */
 app.post('/api/crawl/:categoryId', async (c) => {
   try {
@@ -244,78 +318,6 @@ app.post('/api/crawl/:categoryId', async (c) => {
       )
       .run();
 
-    return c.json<ApiResponse>(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      500
-    );
-  }
-});
-
-/**
- * POST /api/crawl/all - 모든 활성 카테고리 크롤링
- */
-app.post('/api/crawl/all', async (c) => {
-  try {
-    const { results: categories } = await c.env.DB.prepare(
-      'SELECT * FROM categories WHERE active = 1'
-    ).all<Category>();
-
-    const results: CrawlResult[] = [];
-
-    for (const category of categories) {
-      try {
-        const brands = await scrapeWconcept(category.url, c.env);
-        const hasieRank = findHasieRank(brands);
-        const crawledAt = new Date().toISOString();
-
-        // 순위 기록 저장
-        for (const brand of brands) {
-          await c.env.DB.prepare(
-            'INSERT INTO rankings (category_id, brand_name, rank_position, crawled_at) VALUES (?, ?, ?, ?)'
-          )
-            .bind(category.id, brand.name, brand.rank, crawledAt)
-            .run();
-        }
-
-        // 성공 로그
-        await c.env.DB.prepare(
-          'INSERT INTO crawl_logs (category_id, status, crawled_at) VALUES (?, ?, ?)'
-        )
-          .bind(category.id, 'success', crawledAt)
-          .run();
-
-        results.push({
-          category_id: category.id,
-          category_name: category.name,
-          url: category.url,
-          brands: brands,
-          hasie_rank: hasieRank,
-          crawled_at: crawledAt,
-        });
-      } catch (error) {
-        // 실패 로그
-        await c.env.DB.prepare(
-          'INSERT INTO crawl_logs (category_id, status, error_message, crawled_at) VALUES (?, ?, ?, ?)'
-        )
-          .bind(
-            category.id,
-            'failed',
-            error instanceof Error ? error.message : 'Unknown error',
-            new Date().toISOString()
-          )
-          .run();
-      }
-    }
-
-    return c.json<ApiResponse<CrawlResult[]>>({
-      success: true,
-      data: results,
-      message: `${results.length}/${categories.length} 카테고리 크롤링 완료`,
-    });
-  } catch (error) {
     return c.json<ApiResponse>(
       {
         success: false,

@@ -1,0 +1,73 @@
+{
+  "name": "W컨셉 크롤링",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wconcept-scraper",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "wconcept-scraper"
+    },
+    {
+      "parameters": {
+        "jsCode": "// W컨셉 크롤링 with Puppeteer\nconst puppeteer = require('puppeteer');\n\n// 입력 데이터\nconst url = $input.item.json.body.url;\nconst waitTime = $input.item.json.body.waitTime || 5000;\n\nconsole.log(`크롤링 시작: ${url}`);\n\n// Puppeteer 실행\nconst browser = await puppeteer.launch({\n  headless: true,\n  args: [\n    '--no-sandbox',\n    '--disable-setuid-sandbox',\n    '--disable-dev-shm-usage',\n    '--disable-accelerated-2d-canvas',\n    '--disable-gpu'\n  ]\n});\n\nconst page = await browser.newPage();\n\n// User-Agent 설정\nawait page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');\n\n// 뷰포트 설정\nawait page.setViewport({ width: 1920, height: 1080 });\n\ntry {\n  // 페이지 로드\n  console.log('페이지 로딩 중...');\n  await page.goto(url, {\n    waitUntil: 'networkidle0',\n    timeout: 30000\n  });\n  \n  // 추가 대기 (JavaScript 렌더링)\n  console.log(`${waitTime}ms 대기 중...`);\n  await page.waitForTimeout(waitTime);\n  \n  // 브랜드 데이터 추출\n  console.log('브랜드 데이터 추출 중...');\n  const brands = await page.evaluate(() => {\n    // 여러 가능한 선택자 시도\n    const selectors = [\n      'div[class*=\"BrandItem\"]',\n      'div[class*=\"ProductItem\"]',\n      'div[class*=\"product-item\"]',\n      'div[class*=\"brand-item\"]',\n      'a[href*=\"/brand/\"]',\n      'div[class*=\"best-item\"]',\n      'li[class*=\"item\"]',\n      'div[data-brand]'\n    ];\n    \n    let items = [];\n    \n    // 선택자 순서대로 시도\n    for (const selector of selectors) {\n      items = Array.from(document.querySelectorAll(selector));\n      if (items.length > 0) {\n        console.log(`선택자 \"${selector}\"로 ${items.length}개 발견`);\n        break;\n      }\n    }\n    \n    if (items.length === 0) {\n      console.log('브랜드 아이템을 찾을 수 없습니다.');\n      return [];\n    }\n    \n    // 데이터 추출\n    return items.slice(0, 100).map((item, index) => {\n      // 브랜드명 추출\n      let name = '';\n      \n      const nameSelectors = [\n        '[class*=\"brand-name\"]',\n        '[class*=\"BrandName\"]',\n        '[class*=\"brandName\"]',\n        'h3', 'h4', 'h5',\n        '.name', '.title',\n        'span', 'div'\n      ];\n      \n      for (const sel of nameSelectors) {\n        const el = item.querySelector(sel);\n        if (el && el.textContent.trim()) {\n          name = el.textContent.trim();\n          break;\n        }\n      }\n      \n      // data 속성에서 시도\n      if (!name) {\n        name = item.getAttribute('data-brand') || \n               item.getAttribute('data-brand-name') || '';\n      }\n      \n      // 전체 텍스트에서 첫 줄\n      if (!name) {\n        const text = item.textContent.trim();\n        name = text.split('\\n')[0].trim();\n      }\n      \n      // 링크 추출\n      const linkEl = item.querySelector('a');\n      const link = linkEl ? linkEl.href : '';\n      \n      return {\n        rank: index + 1,\n        name: name,\n        link: link\n      };\n    }).filter(b => {\n      return b.name.length > 0 && \n             b.name.length < 100 && \n             !b.name.includes('undefined');\n    });\n  });\n  \n  await browser.close();\n  \n  console.log(`크롤링 완료: ${brands.length}개 브랜드 발견`);\n  \n  // 결과 반환\n  return {\n    success: true,\n    url: url,\n    total: brands.length,\n    brands: brands,\n    timestamp: new Date().toISOString()\n  };\n  \n} catch (error) {\n  await browser.close();\n  console.error('크롤링 에러:', error);\n  \n  return {\n    success: false,\n    url: url,\n    error: error.message,\n    timestamp: new Date().toISOString()\n  };\n}"
+      },
+      "id": "code-1",
+      "name": "Puppeteer 크롤링",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "respond-1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [750, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Puppeteer 크롤링",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Puppeteer 크롤링": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-10-19T19:00:00.000Z",
+  "versionId": "1"
+}
