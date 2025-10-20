@@ -392,7 +392,23 @@ function drawTrendsChart(trends) {
     // "2025.10.20 16:44" → "10.20 16:44"
     return fullTime.substring(5);
   });
-  const data = trends.map(t => t.rank);
+  
+  // 순위 데이터: 201 → 210으로 변경
+  const data = trends.map(t => t.rank === 201 ? 210 : t.rank);
+  
+  // 포인트 색상: OUT(210)은 빨간색, 일반은 검은색
+  const pointColors = trends.map(t => t.rank === 201 ? '#dc2626' : '#000000');
+  const pointBorderColors = trends.map(t => t.rank === 201 ? '#fff' : '#fff');
+  
+  // 라인 세그먼트 색상: OUT 구간은 빨간색
+  const segmentColors = [];
+  for (let i = 0; i < trends.length - 1; i++) {
+    if (trends[i].rank === 201 || trends[i + 1].rank === 201) {
+      segmentColors.push('#dc2626'); // 빨간색
+    } else {
+      segmentColors.push('#000000'); // 검은색
+    }
+  }
   
   new Chart(ctx, {
     type: 'line',
@@ -401,16 +417,24 @@ function drawTrendsChart(trends) {
       datasets: [{
         label: '순위',
         data: data,
-        borderColor: '#000000',
-        backgroundColor: 'rgba(0, 0, 0, 0.05)',
         tension: 0.3,
-        fill: true,
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        pointBackgroundColor: '#000000',
-        pointBorderColor: '#fff',
+        fill: false,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointBorderColors,
         pointBorderWidth: 2,
-        borderWidth: 2
+        borderWidth: 2,
+        segment: {
+          borderColor: (ctx) => {
+            // 세그먼트별로 색상 지정
+            const index = ctx.p0DataIndex;
+            if (index < segmentColors.length) {
+              return segmentColors[index];
+            }
+            return '#000000';
+          }
+        }
       }]
     },
     options: {
@@ -428,7 +452,7 @@ function drawTrendsChart(trends) {
           displayColors: false,
           callbacks: {
             label: function(context) {
-              if (context.parsed.y === 201) {
+              if (context.parsed.y === 210) {
                 return 'OUT (순위권 이탈)';
               }
               return context.parsed.y + '위';
@@ -440,14 +464,42 @@ function drawTrendsChart(trends) {
         y: {
           reverse: true,
           beginAtZero: false,
-          max: 210, // OUT(201) 표시를 위해 최대값 설정
+          max: 220, // OUT(210) 표시를 위해 최대값 설정
           grid: {
-            color: 'rgba(0, 0, 0, 0.1)'
+            color: function(context) {
+              // 210 (OUT) 위치의 그리드는 빨간색
+              if (context.tick.value === 210) {
+                return 'rgba(220, 38, 38, 0.3)';
+              }
+              return 'rgba(0, 0, 0, 0.1)';
+            },
+            lineWidth: function(context) {
+              // 210 (OUT) 위치의 그리드는 더 두껍게
+              if (context.tick.value === 210) {
+                return 2;
+              }
+              return 1;
+            }
           },
           ticks: {
-            color: '#000',
+            color: function(context) {
+              // 210 (OUT) 위치의 라벨은 빨간색
+              if (context.tick.value === 210) {
+                return '#dc2626';
+              }
+              return '#000';
+            },
+            font: function(context) {
+              // 210 (OUT) 위치의 라벨은 볼드
+              if (context.tick.value === 210) {
+                return {
+                  weight: 'bold'
+                };
+              }
+              return {};
+            },
             callback: function(value) {
-              if (value === 201) {
+              if (value === 210) {
                 return 'OUT';
               }
               return value + '위';
