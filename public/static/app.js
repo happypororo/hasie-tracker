@@ -323,10 +323,16 @@ async function showProductTrends(productLink, productName) {
                     <span>${data.total_records}회 기록</span>
                   </div>
                 </div>
-                <button onclick="document.getElementById('trendsModal').remove()" 
-                        class="text-gray-400 hover:text-black text-xl">
-                  ✕
-                </button>
+                <div class="flex items-center gap-2">
+                  <button onclick="exportProductData('${escapeHtml(productLink)}', '${escapeHtml(productName)}')" 
+                          class="px-3 py-1.5 border border-gray-300 text-sm hover:bg-gray-100 transition">
+                    <i class="fas fa-download mr-1"></i>Export
+                  </button>
+                  <button onclick="document.getElementById('trendsModal').remove()" 
+                          class="text-gray-400 hover:text-black text-xl">
+                    ✕
+                  </button>
+                </div>
               </div>
             </div>
             
@@ -349,7 +355,7 @@ async function showProductTrends(productLink, productName) {
                   ${data.trends.map(trend => `
                     <tr class="border-b border-gray-100">
                       <td class="py-2 px-3 text-gray-600">${formatDateTime(trend.created_at)}</td>
-                      <td class="text-center py-2 px-3 font-semibold">${trend.rank}위</td>
+                      <td class="text-center py-2 px-3 font-semibold">${trend.rank === 201 ? '<span class="text-red-600">OUT</span>' : trend.rank + '위'}</td>
                       <td class="text-center py-2 px-3">${getRankChangeIndicator(trend.rank_change, trend.change_type)}</td>
                     </tr>
                   `).join('')}
@@ -422,6 +428,9 @@ function drawTrendsChart(trends) {
           displayColors: false,
           callbacks: {
             label: function(context) {
+              if (context.parsed.y === 201) {
+                return 'OUT (순위권 이탈)';
+              }
               return context.parsed.y + '위';
             }
           }
@@ -431,12 +440,16 @@ function drawTrendsChart(trends) {
         y: {
           reverse: true,
           beginAtZero: false,
+          max: 210, // OUT(201) 표시를 위해 최대값 설정
           grid: {
             color: 'rgba(0, 0, 0, 0.1)'
           },
           ticks: {
             color: '#000',
             callback: function(value) {
+              if (value === 201) {
+                return 'OUT';
+              }
               return value + '위';
             }
           }
@@ -509,6 +522,20 @@ function escapeHtml(text) {
 
 // 데이터베이스 초기화
 async function resetDatabase() {
+  // 비밀번호 확인
+  const password = prompt('⚠️ 데이터베이스 초기화\n\n비밀번호를 입력하세요:');
+  
+  if (password === null) {
+    // 취소 버튼 클릭
+    return;
+  }
+  
+  if (password !== '0890') {
+    alert('❌ 비밀번호가 올바르지 않습니다');
+    return;
+  }
+  
+  // 두 번째 확인
   if (!confirm('⚠️ 모든 순위 데이터가 삭제됩니다.\n정말로 초기화하시겠습니까?')) {
     return;
   }
@@ -685,4 +712,27 @@ function showImportResult(message, type) {
   }
   
   resultDiv.textContent = message;
+}
+
+// ============================================
+// Export 기능
+// ============================================
+
+// 전체 제품 데이터 Export
+function exportAllData() {
+  let url = '/api/hasie/export/all';
+  if (currentCategory) {
+    url += `?category=${encodeURIComponent(currentCategory)}`;
+  }
+  
+  // 다운로드 시작
+  window.location.href = url;
+}
+
+// 개별 제품 데이터 Export
+function exportProductData(productLink, productName) {
+  const url = `/api/hasie/export/product?product_link=${encodeURIComponent(productLink)}`;
+  
+  // 다운로드 시작
+  window.location.href = url;
 }

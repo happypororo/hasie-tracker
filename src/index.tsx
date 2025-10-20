@@ -494,6 +494,7 @@ app.get('/api/hasie/product-trends', async (c) => {
         rank,
         product_name,
         product_link,
+        out_rank,
         created_at
       FROM hasie_rankings
       WHERE product_link = ?
@@ -512,9 +513,16 @@ app.get('/api/hasie/product-trends', async (c) => {
       let change = 0;
       let changeType = 'new';
       
+      // Out Rank인 경우 순위를 201로 표시
+      let displayRank = item.rank;
+      if (item.out_rank === 1) {
+        displayRank = 201;
+      }
+      
       if (index > 0) {
-        const prevRank = (results[index - 1] as any).rank;
-        change = prevRank - item.rank; // 양수면 순위 상승, 음수면 하락
+        const prevItem = results[index - 1] as any;
+        const prevRank = prevItem.out_rank === 1 ? 201 : prevItem.rank;
+        change = prevRank - displayRank; // 양수면 순위 상승, 음수면 하락
         
         if (change > 0) {
           changeType = 'up';
@@ -527,18 +535,24 @@ app.get('/api/hasie/product-trends', async (c) => {
       
       return {
         ...item,
+        rank: displayRank, // 차트에 표시될 순위 (Out Rank = 201)
+        original_rank: item.rank, // 원래 순위 값
         rank_change: change,
         change_type: changeType
       };
     });
     
+    // 순위권 내 순위만으로 최고/최저 계산
+    const inRankResults = results.filter((r: any) => r.out_rank === 0);
+    const lastResult = results[results.length - 1] as any;
+    
     return c.json({
       success: true,
       product_name: results[0].product_name,
       category: results[0].category,
-      current_rank: results[results.length - 1].rank,
-      best_rank: Math.min(...results.map((r: any) => r.rank)),
-      worst_rank: Math.max(...results.map((r: any) => r.rank)),
+      current_rank: lastResult.out_rank === 1 ? 201 : lastResult.rank,
+      best_rank: inRankResults.length > 0 ? Math.min(...inRankResults.map((r: any) => r.rank)) : 201,
+      worst_rank: Math.max(...results.map((r: any) => r.out_rank === 1 ? 201 : r.rank)),
       total_records: results.length,
       trends
     });
@@ -642,6 +656,135 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
   }
 });
 
+/**
+ * 전체 제품 순위 추이 Export (CSV)
+ * GET /api/hasie/export/all
+ */
+app.get('/api/hasie/export/all', async (c) => {
+  try {
+    const { DB } = c.env;
+    const category = c.req.query('category');
+    
+    // 모든 제품의 순위 히스토리 조회
+    let query = `
+      SELECT 
+        category,
+        rank,
+        product_name,
+        product_link,
+        out_rank,
+        created_at,
+        message_date
+      FROM hasie_rankings
+      ${category ? 'WHERE category = ?' : ''}
+      ORDER BY message_date DESC, rank ASC
+    `;
+    
+    const params: any[] = [];
+    if (category) {
+      params.push(category);
+    }
+    
+    const stmt = DB.prepare(query);
+    const { results } = await stmt.bind(...params).all();
+    
+    // CSV 생성
+    let csv = '\uFEFF'; // UTF-8 BOM
+    csv += '카테고리,순위,상품명,상품링크,순위상태,기록시간,메시지시간\n';
+    
+    results.forEach((row: any) => {
+      const status = row.out_rank === 1 ? 'OUT' : '순위권';
+      csv += `"${row.category}",${row.rank},"${row.product_name.replace(/"/g, '""')}","${row.product_link}",${status},"${row.created_at}","${row.message_date}"\n`;
+    });
+    
+    return new Response(csv, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="hasie-rankings-all-${new Date().toISOString().slice(0, 10)}.csv"`
+      }
+    });
+    
+  } catch (error: any) {
+    return c.json({ 
+      success: false, 
+      error: error.message 
+    }, 500);
+  }
+});
+
+/**
+ * 개별 제품 순위 추이 Export (CSV)
+ * GET /api/hasie/export/product?product_link=https://...
+ */
+app.get('/api/hasie/export/product', async (c) => {
+  try {
+    const { DB } = c.env;
+    const productLink = c.req.query('product_link');
+    
+    if (!productLink) {
+      return c.json({ 
+        success: false, 
+        error: 'product_link parameter is required' 
+      }, 400);
+    }
+    
+    // 제품 정보 조회
+    const productInfo = await DB.prepare(`
+      SELECT product_name, category
+      FROM hasie_rankings
+      WHERE product_link = ?
+      LIMIT 1
+    `).bind(productLink).first();
+    
+    if (!productInfo) {
+      return c.json({ 
+        success: false, 
+        error: 'Product not found' 
+      }, 404);
+    }
+    
+    // 제품 순위 히스토리 조회
+    const { results } = await DB.prepare(`
+      SELECT 
+        rank,
+        out_rank,
+        created_at,
+        message_date
+      FROM hasie_rankings
+      WHERE product_link = ?
+      ORDER BY created_at ASC
+    `).bind(productLink).all();
+    
+    // CSV 생성
+    let csv = '\uFEFF'; // UTF-8 BOM
+    csv += `상품명: ${productInfo.product_name}\n`;
+    csv += `카테고리: ${productInfo.category}\n`;
+    csv += `링크: ${productLink}\n`;
+    csv += '\n';
+    csv += '순위,순위상태,기록시간,메시지시간\n';
+    
+    results.forEach((row: any) => {
+      const status = row.out_rank === 1 ? 'OUT' : '순위권';
+      csv += `${row.rank},${status},"${row.created_at}","${row.message_date}"\n`;
+    });
+    
+    const fileName = `hasie-product-${productInfo.product_name.slice(0, 20).replace(/[^a-zA-Z0-9]/g, '_')}-${new Date().toISOString().slice(0, 10)}.csv`;
+    
+    return new Response(csv, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${fileName}"`
+      }
+    });
+    
+  } catch (error: any) {
+    return c.json({ 
+      success: false, 
+      error: error.message 
+    }, 500);
+  }
+});
+
 // ============================================
 // 홈페이지
 // ============================================
@@ -697,6 +840,9 @@ app.get('/', (c) => {
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-sm font-semibold text-gray-700">실시간 연동</div>
                     <div class="flex gap-2">
+                        <button onclick="exportAllData()" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm hover:bg-gray-100 transition">
+                            <i class="fas fa-download mr-1"></i>전체 Export
+                        </button>
                         <button onclick="showImportModal()" class="px-4 py-2 bg-black text-white text-sm hover:bg-gray-800 transition">
                             메시지 입력
                         </button>
