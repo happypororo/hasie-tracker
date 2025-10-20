@@ -9,7 +9,7 @@
 - **Git 태그**: `v1.0`
 - **완성일**: 2025-10-20
 - **커밋 해시**: `c4379ab`
-- **백업 파일**: [hasie-tracker-v1.0.tar.gz](다운로드 링크는 백업 생성 후 추가됨)
+- **백업 파일**: [hasie-tracker-v1.0.tar.gz](https://page.gensparksite.com/project_backups/hasie-tracker-v1.0.tar.gz)
 
 ## 📚 버전 히스토리
 
@@ -34,7 +34,7 @@
 git checkout v1.0
 
 # 백업 파일로 복원
-wget [백업 다운로드 링크]
+wget https://page.gensparksite.com/project_backups/hasie-tracker-v1.0.tar.gz
 tar -xzf hasie-tracker-v1.0.tar.gz
 cd home/user/webapp && npm install
 ```
