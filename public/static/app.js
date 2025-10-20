@@ -466,16 +466,19 @@ function formatDate(dateString) {
   });
 }
 
-// 날짜/시간 포맷 (절대 시간)
+// 날짜/시간 포맷 (절대 시간, 한국 시간대)
 function formatDateTime(dateString) {
   const date = new Date(dateString);
   
+  // 한국 시간대(Asia/Seoul)로 변환
+  const koreaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  
   // YYYY.MM.DD HH:MM 형식으로 표시
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const year = koreaTime.getFullYear();
+  const month = String(koreaTime.getMonth() + 1).padStart(2, '0');
+  const day = String(koreaTime.getDate()).padStart(2, '0');
+  const hours = String(koreaTime.getHours()).padStart(2, '0');
+  const minutes = String(koreaTime.getMinutes()).padStart(2, '0');
   
   return `${year}.${month}.${day} ${hours}:${minutes}`;
 }
