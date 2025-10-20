@@ -469,40 +469,15 @@ function formatDate(dateString) {
 // 날짜/시간 포맷 (절대 시간)
 function formatDateTime(dateString) {
   const date = new Date(dateString);
-  const now = new Date();
-  const diff = Math.floor((now - date) / 1000);
   
-  // 1분 이내
-  if (diff < 60) return '방금 전';
+  // YYYY.MM.DD HH:MM 형식으로 표시
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
   
-  // 1시간 이내
-  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-  
-  // 24시간 이내 - 오늘 HH:MM
-  if (diff < 86400) {
-    return `오늘 ${date.toLocaleTimeString('ko-KR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    })}`;
-  }
-  
-  // 7일 이내
-  if (diff < 604800) {
-    return `${Math.floor(diff / 86400)}일 전`;
-  }
-  
-  // 그 이상 - YYYY.MM.DD HH:MM
-  return date.toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).replace(/\. /g, '.').replace(/\.$/, '') + ' ' + 
-  date.toLocaleTimeString('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
+  return `${year}.${month}.${day} ${hours}:${minutes}`;
 }
 
 // HTML 이스케이프
