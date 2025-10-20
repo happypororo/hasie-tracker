@@ -273,7 +273,7 @@ app.get('/api/hasie/latest', async (c) => {
     const { DB } = c.env;
     const category = c.req.query('category');
     
-    // 각 제품의 최신 순위만 가져오기 (out_rank = 0인 것만)
+    // 각 제품의 최신 순위만 가져오기 (가장 최근 레코드가 out_rank = 0인 것만)
     let query = `
       SELECT 
         h1.id,
@@ -286,8 +286,7 @@ app.get('/api/hasie/latest', async (c) => {
       INNER JOIN (
         SELECT product_link, MAX(created_at) as max_date
         FROM hasie_rankings
-        WHERE out_rank = 0
-        ${category ? 'AND category = ?' : ''}
+        ${category ? 'WHERE category = ?' : ''}
         GROUP BY product_link
       ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
       WHERE h1.out_rank = 0
@@ -571,7 +570,7 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
     const { DB } = c.env;
     const category = c.req.query('category');
     
-    // 각 제품의 최신 순위만 가져오기 (out_rank = 0)
+    // 각 제품의 최신 순위만 가져오기 (가장 최근 레코드가 out_rank = 0인 것만)
     let query = `
       SELECT 
         h1.id,
@@ -579,13 +578,13 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
         h1.rank,
         h1.product_name,
         h1.product_link,
-        h1.created_at
+        h1.created_at,
+        h1.out_rank
       FROM hasie_rankings h1
       INNER JOIN (
         SELECT product_link, MAX(created_at) as max_date
         FROM hasie_rankings
-        WHERE out_rank = 0
-        ${category ? 'AND category = ?' : ''}
+        ${category ? 'WHERE category = ?' : ''}
         GROUP BY product_link
       ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
       WHERE h1.out_rank = 0
