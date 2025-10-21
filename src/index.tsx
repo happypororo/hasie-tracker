@@ -83,11 +83,11 @@ app.post('/api/hasie/import', async (c) => {
       if (categories.length > 0) {
         // 2. 카테고리별로 OUT 처리
         for (const category of categories) {
-          // 해당 카테고리의 이번 세션 제품 목록
+          // 해당 카테고리의 이번 세션 제품 목록 (정상 순위만)
           const { results: sessionProducts } = await DB.prepare(`
             SELECT DISTINCT product_link
             FROM hasie_rankings
-            WHERE update_session_id = ? AND category = ?
+            WHERE update_session_id = ? AND category = ? AND out_rank = 0
           `).bind(sessionId, category).all();
           
           const sessionProductLinks = sessionProducts.map((p: any) => p.product_link);
@@ -287,7 +287,7 @@ app.post('/api/telegram/webhook', async (c) => {
           const { results: sessionProducts } = await DB.prepare(`
             SELECT DISTINCT product_link
             FROM hasie_rankings
-            WHERE update_session_id = ? AND category = ?
+            WHERE update_session_id = ? AND category = ? AND out_rank = 0
           `).bind(sessionId, category).all();
           
           const sessionProductLinks = sessionProducts.map((p: any) => p.product_link);
