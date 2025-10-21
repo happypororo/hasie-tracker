@@ -36,7 +36,90 @@ app.post('/api/hasie/import', async (c) => {
     // 메시지 시간 (없으면 현재 시간 사용)
     const msgDate = messageDate || new Date().toISOString();
     
-    // 메시지 파싱
+    // [시작] 메시지 처리
+    if (messageText.trim() === '[시작]') {
+      const sessionId = `session_${Date.now()}`;
+      await DB.prepare(`
+        INSERT INTO update_sessions (session_id, started_at, message_date, status)
+        VALUES (?, datetime('now'), ?, 'in_progress')
+      `).bind(sessionId, msgDate).run();
+      
+      return c.json({ 
+        success: true, 
+        message: '업데이트 세션 시작',
+        session_id: sessionId
+      });
+    }
+    
+    // [끝] 메시지 처리
+    if (messageText.trim() === '[끝]') {
+      // 가장 최근의 진행 중인 세션 찾기
+      const session = await DB.prepare(`
+        SELECT session_id FROM update_sessions
+        WHERE status = 'in_progress'
+        ORDER BY started_at DESC
+        LIMIT 1
+      `).first();
+      
+      if (!session) {
+        return c.json({ 
+          success: false, 
+          error: '진행 중인 업데이트 세션이 없습니다'
+        }, 400);
+      }
+      
+      const sessionId = session.session_id;
+      
+      // OUT Rank 처리: 이번 세션에 없는 제품들을 OUT으로
+      const { results: sessionProducts } = await DB.prepare(`
+        SELECT DISTINCT product_link
+        FROM hasie_rankings
+        WHERE update_session_id = ?
+      `).bind(sessionId).all();
+      
+      const sessionProductLinks = sessionProducts.map((p: any) => p.product_link);
+      
+      if (sessionProductLinks.length > 0) {
+        const placeholders = sessionProductLinks.map(() => '?').join(',');
+        
+        // 중복 방지: 같은 세션에서 이미 OUT 기록이 있는 제품은 제외 (옵션 1)
+        // INSERT OR IGNORE: UNIQUE 제약으로 중복 차단 (옵션 4)
+        await DB.prepare(`
+          INSERT OR IGNORE INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date, update_session_id)
+          SELECT h1.category, 201, h1.product_name, h1.product_link, 1, datetime('now'), ?, ?
+          FROM hasie_rankings h1
+          INNER JOIN (
+            SELECT product_link, MAX(created_at) as max_date
+            FROM hasie_rankings
+            GROUP BY product_link
+          ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+          WHERE h1.out_rank = 0
+            AND h1.rank != 201
+            AND h1.product_link NOT IN (${placeholders})
+            AND h1.product_link NOT IN (
+              SELECT product_link
+              FROM hasie_rankings
+              WHERE out_rank = 1
+                AND update_session_id = ?
+            )
+        `).bind(msgDate, sessionId, sessionId, ...sessionProductLinks).run();
+      }
+      
+      // 세션 완료 표시
+      await DB.prepare(`
+        UPDATE update_sessions
+        SET completed_at = datetime('now'), status = 'completed'
+        WHERE session_id = ?
+      `).bind(sessionId).run();
+      
+      return c.json({ 
+        success: true, 
+        message: '업데이트 세션 완료 및 OUT Rank 처리 완료',
+        session_id: sessionId
+      });
+    }
+    
+    // 일반 순위 메시지 파싱
     const rankings = parseMultipleCategoryRankings(messageText);
     
     if (rankings.length === 0) {
@@ -46,39 +129,32 @@ app.post('/api/hasie/import', async (c) => {
       }, 400);
     }
     
+    // 현재 진행 중인 세션 ID 가져오기
+    const session = await DB.prepare(`
+      SELECT session_id FROM update_sessions
+      WHERE status = 'in_progress'
+      ORDER BY started_at DESC
+      LIMIT 1
+    `).first();
+    
+    const sessionId = session ? session.session_id : `session_${Date.now()}`;
+    
+    // 세션이 없으면 자동 생성
+    if (!session) {
+      await DB.prepare(`
+        INSERT INTO update_sessions (session_id, started_at, message_date, status)
+        VALUES (?, datetime('now'), ?, 'in_progress')
+      `).bind(sessionId, msgDate).run();
+    }
+    
     // 이번에 등장한 제품들의 링크 목록
     const currentProductLinks = rankings.map(r => r.productLink);
     
     // 카테고리별로 그룹화
     const categoriesInMessage = [...new Set(rankings.map(r => r.category))];
     
-    // 이번 메시지에 등장하지 않은 모든 제품을 Out Rank로 표시
+    // OUT Rank 처리는 [끝] 메시지에서만 수행
     const batch = [];
-    
-    // 이번 메시지에 포함된 모든 제품 링크
-    const allProductLinks = rankings.map(r => r.productLink);
-    
-    if (allProductLinks.length > 0) {
-      // 현재 순위권(out_rank=0)에 있는 제품 중,
-      // 이번 메시지 시간과 다른 시간대의 제품만 Out Rank로 이동
-      const placeholders = allProductLinks.map(() => '?').join(',');
-      batch.push(
-        DB.prepare(`
-          INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date)
-          SELECT h1.category, h1.rank, h1.product_name, h1.product_link, 1, datetime('now'), ?
-          FROM hasie_rankings h1
-          INNER JOIN (
-            SELECT product_link, MAX(created_at) as max_date
-            FROM hasie_rankings
-            WHERE out_rank = 0
-            GROUP BY product_link
-          ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
-          WHERE h1.out_rank = 0
-            AND h1.product_link NOT IN (${placeholders})
-            AND strftime('%Y-%m-%d %H:%M', h1.message_date) != strftime('%Y-%m-%d %H:%M', ?)
-        `).bind(msgDate, ...allProductLinks, msgDate)
-      );
-    }
     
     // 메시지 로그 저장
     const messageId = Date.now();
@@ -88,12 +164,12 @@ app.post('/api/hasie/import', async (c) => {
       ).bind(messageId, messageText, rankings.length, msgDate)
     );
     
-    // 새로운 순위 데이터 저장 (out_rank = 0, 순위권 내)
+    // 새로운 순위 데이터 저장 (out_rank = 0, 순위권 내, update_session_id 포함)
     for (const ranking of rankings) {
       batch.push(
         DB.prepare(
-          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, message_date) VALUES (?, ?, ?, ?, 0, ?)'
-        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink, msgDate)
+          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, message_date, update_session_id) VALUES (?, ?, ?, ?, 0, ?, ?)'
+        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink, msgDate, sessionId)
       );
     }
     
@@ -318,7 +394,7 @@ app.get('/api/hasie/out-rank', async (c) => {
     const { DB } = c.env;
     const category = c.req.query('category');
     
-    // 각 제품의 최신 Out Rank 기록만 가져오기
+    // 최신 기록이 OUT인 제품만 가져오기 (최신순위로 복귀한 제품 제외)
     let query = `
       SELECT 
         h1.id,
@@ -331,11 +407,10 @@ app.get('/api/hasie/out-rank', async (c) => {
       INNER JOIN (
         SELECT product_link, MAX(created_at) as max_date
         FROM hasie_rankings
-        WHERE out_rank = 1
-        ${category ? 'AND category = ?' : ''}
         GROUP BY product_link
       ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
       WHERE h1.out_rank = 1
+      ${category ? 'AND h1.category = ?' : ''}
       ORDER BY h1.created_at DESC
     `;
     
@@ -896,6 +971,7 @@ app.get('/', (c) => {
         
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
         <script src="/static/app.js?v=${Date.now()}"></script>
     </body>
     </html>

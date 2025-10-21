@@ -338,7 +338,7 @@ async function showProductTrends(productLink, productName) {
             
             <!-- 차트 -->
             <div class="p-6 border-b border-gray-200">
-              <canvas id="trendsChart" height="80"></canvas>
+              <canvas id="trendsChart"></canvas>
             </div>
             
             <!-- 순위 이력 -->
@@ -382,14 +382,26 @@ function closeModal(event) {
   }
 }
 
+// 전역 차트 인스턴스 저장
+let currentChart = null;
+
 // Chart.js - 심플 흑백 스타일
 function drawTrendsChart(trends) {
-  const ctx = document.getElementById('trendsChart').getContext('2d');
+  const canvas = document.getElementById('trendsChart');
+  const ctx = canvas.getContext('2d');
+  
+  // 모바일/PC 구분하여 높이 설정
+  const isMobile = window.innerWidth < 768;
+  canvas.height = isMobile ? 400 : 200;
+  
+  // 기존 차트가 있으면 파괴
+  if (currentChart) {
+    currentChart.destroy();
+  }
   
   // 차트용 짧은 날짜 형식 (MM.DD HH:MM)
   const labels = trends.map(t => {
     const fullTime = formatDateTime(t.created_at);
-    // "2025.10.20 16:44" → "10.20 16:44"
     return fullTime.substring(5);
   });
   
@@ -404,42 +416,45 @@ function drawTrendsChart(trends) {
   const segmentColors = [];
   for (let i = 0; i < trends.length - 1; i++) {
     if (trends[i].rank === 201 || trends[i + 1].rank === 201) {
-      segmentColors.push('#dc2626'); // 빨간색
+      segmentColors.push('#dc2626');
     } else {
-      segmentColors.push('#000000'); // 검은색
+      segmentColors.push('#000000');
     }
   }
   
-  new Chart(ctx, {
+  // 새 차트 생성하고 전역 변수에 저장
+  currentChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels: labels,
-      datasets: [{
-        label: '순위',
-        data: data,
-        tension: 0.3,
-        fill: false,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        pointBackgroundColor: pointColors,
-        pointBorderColor: pointBorderColors,
-        pointBorderWidth: 2,
-        borderWidth: 2,
-        segment: {
-          borderColor: (ctx) => {
-            // 세그먼트별로 색상 지정
-            const index = ctx.p0DataIndex;
-            if (index < segmentColors.length) {
-              return segmentColors[index];
+      datasets: [
+        {
+          // 실제 순위 데이터
+          label: '순위',
+          data: data,
+          tension: 0.3,
+          fill: false,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          pointBackgroundColor: pointColors,
+          pointBorderColor: pointBorderColors,
+          pointBorderWidth: 2,
+          borderWidth: 2,
+          segment: {
+            borderColor: (ctx) => {
+              const index = ctx.p0DataIndex;
+              if (index < segmentColors.length) {
+                return segmentColors[index];
+              }
+              return '#000000';
             }
-            return '#000000';
           }
         }
-      }]
+      ]
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
+      maintainAspectRatio: false,
       plugins: {
         legend: {
           display: false
@@ -458,37 +473,53 @@ function drawTrendsChart(trends) {
               return context.parsed.y + '위';
             }
           }
+        },
+        annotation: {
+          annotations: {
+            outLine: {
+              type: 'line',
+              yMin: 210,
+              yMax: 210,
+              borderColor: '#dc2626',
+              borderWidth: 3,
+              borderDash: [5, 5],
+              label: {
+                display: true,
+                content: 'OUT',
+                position: 'end',
+                backgroundColor: '#dc2626',
+                color: '#fff',
+                font: {
+                  weight: 'bold'
+                }
+              }
+            }
+          }
         }
       },
       scales: {
         y: {
           reverse: true,
-          beginAtZero: false,
-          max: 220, // OUT(210) 표시를 위해 최대값 설정
-          grid: {
-            color: function(context) {
-              // 210 (OUT) 위치의 그리드는 빨간색
-              if (context.tick && context.tick.value === 210) {
-                return 'rgba(220, 38, 38, 0.3)';
-              }
-              return 'rgba(0, 0, 0, 0.1)';
-            },
-            lineWidth: function(context) {
-              // 210 (OUT) 위치의 그리드는 더 두껍게
-              if (context.tick && context.tick.value === 210) {
-                return 2;
-              }
-              return 1;
-            }
-          },
+          min: 0,
+          max: 220,
           ticks: {
+            stepSize: 10,
+            autoSkip: false,
             color: '#000',
             callback: function(value) {
-              if (value === 210) {
-                return 'OUT';
-              }
-              return value + '위';
+              // 특정 값만 라벨 표시
+              if (value === 0) return '0위';
+              if (value === 50) return '50위';
+              if (value === 100) return '100위';
+              if (value === 150) return '150위';
+              if (value === 200) return '200위';
+              if (value === 210) return 'OUT';
+              return ''; // 나머지 숨김
             }
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.1)',
+            lineWidth: 1
           }
         },
         x: {
@@ -663,10 +694,20 @@ function showImportModal() {
               저장하기
             </button>
             <button 
+              onclick="importBulkMessages()" 
+              class="flex-1 px-4 py-2.5 bg-blue-600 text-white text-sm hover:bg-blue-700 transition"
+              id="bulkImportButton">
+              전체 Import
+            </button>
+            <button 
               onclick="document.getElementById('importModal').remove()" 
               class="px-4 py-2.5 border border-gray-300 text-sm hover:bg-gray-100 transition">
               취소
             </button>
+          </div>
+          
+          <div class="mt-2 text-xs text-gray-600">
+            <strong>전체 Import:</strong> [시작], 여러 카테고리 메시지, [끝]을 한 번에 붙여넣고 "전체 Import" 버튼 클릭
           </div>
           
           <!-- 결과 메시지 -->
@@ -734,6 +775,84 @@ async function importMessage() {
   } finally {
     button.disabled = false;
     button.textContent = '저장하기';
+  }
+}
+
+// 전체 Import 처리 (여러 메시지 한번에)
+async function importBulkMessages() {
+  const fullText = document.getElementById('messageInput').value.trim();
+  const messageDateTime = document.getElementById('messageDateTime').value;
+  const button = document.getElementById('bulkImportButton');
+  const resultDiv = document.getElementById('importResult');
+  
+  if (!fullText) {
+    showImportResult('메시지를 입력해주세요', 'error');
+    return;
+  }
+  
+  // 메시지 시간을 ISO 형식으로 변환
+  const messageDate = messageDateTime ? new Date(messageDateTime).toISOString() : new Date().toISOString();
+  
+  // [시작]과 [끝] 사이의 메시지들을 분리
+  const messages = fullText.split(/\n\s*\n/).filter(msg => msg.trim());
+  
+  if (!messages.some(msg => msg.trim() === '[시작]') || !messages.some(msg => msg.trim() === '[끝]')) {
+    showImportResult('⚠️ [시작]과 [끝] 메시지가 필요합니다', 'error');
+    return;
+  }
+  
+  // 버튼 비활성화
+  button.disabled = true;
+  button.textContent = '처리 중...';
+  resultDiv.classList.add('hidden');
+  
+  let totalProducts = 0;
+  let categories = [];
+  
+  try {
+    // 순서대로 각 메시지 처리
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i].trim();
+      if (!msg) continue;
+      
+      showImportResult(`처리 중... (${i + 1}/${messages.length})`, 'info');
+      
+      const response = await axios.post('/api/hasie/import', {
+        messageText: msg,
+        messageDate: messageDate
+      });
+      
+      if (response.data.success) {
+        if (response.data.parsedCount) {
+          totalProducts += response.data.parsedCount;
+          categories = categories.concat(response.data.categories || []);
+        }
+      } else {
+        console.warn(`메시지 처리 경고:`, response.data.error);
+      }
+      
+      // 요청 간 짧은 딜레이
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    showImportResult(
+      `✓ 전체 Import 완료! ${totalProducts}개 상품 저장 (${[...new Set(categories)].join(', ')})`,
+      'success'
+    );
+    
+    // 2초 후 모달 닫고 데이터 새로고침
+    setTimeout(() => {
+      document.getElementById('importModal').remove();
+      loadStats();
+      loadRankings(currentCategory);
+    }, 2000);
+    
+  } catch (error) {
+    console.error('Bulk import error:', error);
+    showImportResult('✗ 일부 데이터 저장에 실패했습니다', 'error');
+  } finally {
+    button.disabled = false;
+    button.textText = '전체 Import';
   }
 }
 
