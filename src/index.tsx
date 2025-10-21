@@ -70,39 +70,54 @@ app.post('/api/hasie/import', async (c) => {
       
       const sessionId = session.session_id;
       
-      // OUT Rank 처리: 이번 세션에 없는 제품들을 OUT으로
-      const { results: sessionProducts } = await DB.prepare(`
-        SELECT DISTINCT product_link
+      // OUT Rank 처리: 이번 세션에 업데이트된 카테고리에서 없는 제품들만 OUT으로
+      // 1. 이번 세션에서 업데이트된 카테고리 목록 가져오기
+      const { results: sessionCategories } = await DB.prepare(`
+        SELECT DISTINCT category
         FROM hasie_rankings
         WHERE update_session_id = ?
       `).bind(sessionId).all();
       
-      const sessionProductLinks = sessionProducts.map((p: any) => p.product_link);
+      const categories = sessionCategories.map((c: any) => c.category);
       
-      if (sessionProductLinks.length > 0) {
-        const placeholders = sessionProductLinks.map(() => '?').join(',');
-        
-        // 중복 방지: 같은 세션에서 이미 OUT 기록이 있는 제품은 제외 (옵션 1)
-        // INSERT OR IGNORE: UNIQUE 제약으로 중복 차단 (옵션 4)
-        await DB.prepare(`
-          INSERT OR IGNORE INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date, update_session_id)
-          SELECT h1.category, 201, h1.product_name, h1.product_link, 1, datetime('now'), ?, ?
-          FROM hasie_rankings h1
-          INNER JOIN (
-            SELECT product_link, MAX(created_at) as max_date
+      if (categories.length > 0) {
+        // 2. 카테고리별로 OUT 처리
+        for (const category of categories) {
+          // 해당 카테고리의 이번 세션 제품 목록
+          const { results: sessionProducts } = await DB.prepare(`
+            SELECT DISTINCT product_link
             FROM hasie_rankings
-            GROUP BY product_link
-          ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
-          WHERE h1.out_rank = 0
-            AND h1.rank != 201
-            AND h1.product_link NOT IN (${placeholders})
-            AND h1.product_link NOT IN (
-              SELECT product_link
-              FROM hasie_rankings
-              WHERE out_rank = 1
-                AND update_session_id = ?
-            )
-        `).bind(msgDate, sessionId, sessionId, ...sessionProductLinks).run();
+            WHERE update_session_id = ? AND category = ?
+          `).bind(sessionId, category).all();
+          
+          const sessionProductLinks = sessionProducts.map((p: any) => p.product_link);
+          
+          if (sessionProductLinks.length > 0) {
+            const placeholders = sessionProductLinks.map(() => '?').join(',');
+            
+            // 같은 카테고리에서 이번 세션에 없는 제품만 OUT으로
+            await DB.prepare(`
+              INSERT OR IGNORE INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date, update_session_id)
+              SELECT h1.category, 201, h1.product_name, h1.product_link, 1, datetime('now'), ?, ?
+              FROM hasie_rankings h1
+              INNER JOIN (
+                SELECT product_link, MAX(created_at) as max_date
+                FROM hasie_rankings
+                GROUP BY product_link
+              ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+              WHERE h1.out_rank = 0
+                AND h1.rank != 201
+                AND h1.category = ?
+                AND h1.product_link NOT IN (${placeholders})
+                AND h1.product_link NOT IN (
+                  SELECT product_link
+                  FROM hasie_rankings
+                  WHERE out_rank = 1
+                    AND update_session_id = ?
+                )
+            `).bind(msgDate, sessionId, category, sessionId, ...sessionProductLinks).run();
+          }
+        }
       }
       
       // 세션 완료 표시
