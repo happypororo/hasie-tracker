@@ -2,7 +2,70 @@
 
 텔레그램 채널에서 W컨셉 '하시에' 브랜드의 순위 정보를 자동으로 수집하고 트래킹하는 웹 애플리케이션
 
-## 🎯 현재 버전: v1.1
+**🔗 GitHub**: https://github.com/happypororo/hasie-tracker
+
+## 🎯 현재 버전: v1.2
+
+**버전 정보**
+- **버전명**: v1.2 (이중 방어 시스템 - OUT 중복 완전 차단)
+- **Git 태그**: `v1.2`
+- **완성일**: 2025-10-21
+- **주요 기능**:
+  - ✅ 세션 ID 기반 OUT 중복 방지 (1차 방어)
+  - ✅ UNIQUE 제약으로 DB 레벨 중복 차단 (2차 방어)
+  - ✅ INSERT OR IGNORE로 안전한 에러 처리 (3차 방어)
+  - ✅ 최신순위 복귀 제품 Out Rank 탭에서 자동 제거
+  - ✅ GitHub 저장소 연동 완료
+
+## 🚀 빠른 시작 (새 세션 복원)
+
+### 젠스파크 새 대화창에서 복원하기
+
+다음 명령어를 복사해서 새 대화창에 붙여넣으세요:
+
+```
+GitHub에서 하시에 순위 트래커 프로젝트를 복원하고 실행해줘.
+
+저장소: https://github.com/happypororo/hasie-tracker
+기술 스택: Hono + Cloudflare D1 + Chart.js
+경로: /home/user/webapp
+
+다음 순서로 진행해줘:
+1. git clone https://github.com/happypororo/hasie-tracker.git /home/user/webapp
+2. cd /home/user/webapp && npm install (300초 타임아웃)
+3. cd /home/user/webapp && npx wrangler d1 migrations apply webapp-production --local
+4. cd /home/user/webapp && npm run build (300초 타임아웃)
+5. cd /home/user/webapp && pm2 start ecosystem.config.cjs
+6. curl http://localhost:3000 으로 테스트
+7. GetServiceUrl로 공개 URL 확인
+
+완료되면 GitHub 링크, 로컬 URL, 공개 URL 모두 알려줘.
+```
+
+### 수동 복원 (직접 명령어 입력)
+
+```bash
+# 1. 저장소 클론
+git clone https://github.com/happypororo/hasie-tracker.git /home/user/webapp
+cd /home/user/webapp
+
+# 2. 의존성 설치 (300초 타임아웃)
+npm install
+
+# 3. 데이터베이스 마이그레이션
+npx wrangler d1 migrations apply webapp-production --local
+
+# 4. 빌드 (300초 타임아웃)
+npm run build
+
+# 5. 서버 시작
+pm2 start ecosystem.config.cjs
+
+# 6. 테스트
+curl http://localhost:3000
+```
+
+## 🎯 이전 버전: v1.1
 
 **버전 정보**
 - **버전명**: v1.1 (Export + Password + Out Chart + Minute-Precision Fix)
