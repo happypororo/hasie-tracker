@@ -673,18 +673,26 @@ app.get('/api/hasie/product-trends', async (c) => {
       }, 400);
     }
     
+    // 같은 분의 레코드 중 최신 것만 선택 (중복 제거)
     const { results } = await DB.prepare(`
       SELECT 
-        id,
-        category,
-        rank,
-        product_name,
-        product_link,
-        out_rank,
-        created_at
-      FROM hasie_rankings
-      WHERE product_link = ?
-      ORDER BY created_at ASC
+        h1.id,
+        h1.category,
+        h1.rank,
+        h1.product_name,
+        h1.product_link,
+        h1.out_rank,
+        h1.created_at
+      FROM hasie_rankings h1
+      INNER JOIN (
+        SELECT 
+          MAX(id) as max_id,
+          strftime('%Y-%m-%d %H:%M', created_at) as time_minute
+        FROM hasie_rankings
+        WHERE product_link = ?
+        GROUP BY strftime('%Y-%m-%d %H:%M', created_at)
+      ) h2 ON h1.id = h2.max_id
+      ORDER BY h1.created_at ASC
     `).bind(productLink).all();
     
     if (results.length === 0) {
