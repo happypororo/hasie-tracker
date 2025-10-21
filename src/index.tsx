@@ -221,7 +221,7 @@ app.post('/api/telegram/webhook', async (c) => {
     }
     
     const messageId = update.message.message_id;
-    const messageText = update.message.text;
+    const messageText = update.message.text.trim();
     const messageDate = update.message.date 
       ? new Date(update.message.date * 1000).toISOString() 
       : new Date().toISOString();
@@ -235,7 +235,110 @@ app.post('/api/telegram/webhook', async (c) => {
       return c.json({ success: true, message: 'Already processed' }, 200);
     }
     
-    // 메시지 파싱
+    // [시작] 메시지 처리
+    if (messageText === '[시작]') {
+      const sessionId = `session_${Date.now()}`;
+      await DB.prepare(`
+        INSERT INTO update_sessions (session_id, started_at, message_date, status)
+        VALUES (?, datetime('now'), ?, 'in_progress')
+      `).bind(sessionId, messageDate).run();
+      
+      // 메시지 로그 저장
+      await DB.prepare(
+        'INSERT INTO telegram_messages (message_id, message_text, parsed_count, message_date) VALUES (?, ?, ?, ?)'
+      ).bind(messageId, messageText, 0, messageDate).run();
+      
+      return c.json({ 
+        success: true, 
+        message: '업데이트 세션 시작',
+        session_id: sessionId
+      }, 200);
+    }
+    
+    // [끝] 메시지 처리
+    if (messageText === '[끝]') {
+      const session = await DB.prepare(`
+        SELECT session_id FROM update_sessions
+        WHERE status = 'in_progress'
+        ORDER BY started_at DESC
+        LIMIT 1
+      `).first();
+      
+      if (!session) {
+        return c.json({ 
+          success: true, 
+          message: '진행 중인 업데이트 세션이 없습니다'
+        }, 200);
+      }
+      
+      const sessionId = session.session_id;
+      
+      // OUT Rank 처리: 카테고리별로 처리
+      const { results: sessionCategories } = await DB.prepare(`
+        SELECT DISTINCT category
+        FROM hasie_rankings
+        WHERE update_session_id = ?
+      `).bind(sessionId).all();
+      
+      const categories = sessionCategories.map((c: any) => c.category);
+      
+      if (categories.length > 0) {
+        for (const category of categories) {
+          const { results: sessionProducts } = await DB.prepare(`
+            SELECT DISTINCT product_link
+            FROM hasie_rankings
+            WHERE update_session_id = ? AND category = ?
+          `).bind(sessionId, category).all();
+          
+          const sessionProductLinks = sessionProducts.map((p: any) => p.product_link);
+          
+          if (sessionProductLinks.length > 0) {
+            const placeholders = sessionProductLinks.map(() => '?').join(',');
+            
+            await DB.prepare(`
+              INSERT OR IGNORE INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date, update_session_id)
+              SELECT h1.category, 201, h1.product_name, h1.product_link, 1, datetime('now'), ?, ?
+              FROM hasie_rankings h1
+              INNER JOIN (
+                SELECT product_link, MAX(created_at) as max_date
+                FROM hasie_rankings
+                GROUP BY product_link
+              ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
+              WHERE h1.out_rank = 0
+                AND h1.rank != 201
+                AND h1.category = ?
+                AND h1.product_link NOT IN (${placeholders})
+                AND h1.product_link NOT IN (
+                  SELECT product_link
+                  FROM hasie_rankings
+                  WHERE out_rank = 1
+                    AND update_session_id = ?
+                )
+            `).bind(messageDate, sessionId, category, sessionId, ...sessionProductLinks).run();
+          }
+        }
+      }
+      
+      // 세션 완료 표시
+      await DB.prepare(`
+        UPDATE update_sessions
+        SET completed_at = datetime('now'), status = 'completed'
+        WHERE session_id = ?
+      `).bind(sessionId).run();
+      
+      // 메시지 로그 저장
+      await DB.prepare(
+        'INSERT INTO telegram_messages (message_id, message_text, parsed_count, message_date) VALUES (?, ?, ?, ?)'
+      ).bind(messageId, messageText, 0, messageDate).run();
+      
+      return c.json({ 
+        success: true, 
+        message: '업데이트 세션 완료 및 OUT Rank 처리 완료',
+        session_id: sessionId
+      }, 200);
+    }
+    
+    // 일반 순위 메시지 파싱
     const rankings = parseMultipleCategoryRankings(messageText);
     
     if (rankings.length === 0) {
@@ -251,7 +354,24 @@ app.post('/api/telegram/webhook', async (c) => {
       }, 200);
     }
     
-    // 트랜잭션으로 데이터 저장
+    // 현재 진행 중인 세션 ID 가져오기
+    const session = await DB.prepare(`
+      SELECT session_id FROM update_sessions
+      WHERE status = 'in_progress'
+      ORDER BY started_at DESC
+      LIMIT 1
+    `).first();
+    
+    const sessionId = session ? session.session_id : `session_${Date.now()}`;
+    
+    // 세션이 없으면 자동 생성
+    if (!session) {
+      await DB.prepare(`
+        INSERT INTO update_sessions (session_id, started_at, message_date, status)
+        VALUES (?, datetime('now'), ?, 'in_progress')
+      `).bind(sessionId, messageDate).run();
+    }
+    
     const batch = [];
     
     // 메시지 로그 저장
@@ -261,40 +381,12 @@ app.post('/api/telegram/webhook', async (c) => {
       ).bind(messageId, messageText, rankings.length, messageDate)
     );
     
-    // 이번 메시지에 등장한 카테고리 목록
-    const categoriesInMessage = [...new Set(rankings.map(r => r.category))];
-    
-    // 이번 메시지에 등장하지 않은 모든 제품을 Out Rank로 표시
-    const allProductLinks = rankings.map(r => r.productLink);
-    
-    if (allProductLinks.length > 0) {
-      // 현재 순위권(out_rank=0)에 있는 제품 중,
-      // 이번 메시지 시간과 다른 시간대의 제품만 Out Rank로 이동
-      const placeholders = allProductLinks.map(() => '?').join(',');
-      batch.push(
-        DB.prepare(`
-          INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, created_at, message_date)
-          SELECT h1.category, h1.rank, h1.product_name, h1.product_link, 1, datetime('now'), ?
-          FROM hasie_rankings h1
-          INNER JOIN (
-            SELECT product_link, MAX(created_at) as max_date
-            FROM hasie_rankings
-            WHERE out_rank = 0
-            GROUP BY product_link
-          ) h2 ON h1.product_link = h2.product_link AND h1.created_at = h2.max_date
-          WHERE h1.out_rank = 0
-            AND h1.product_link NOT IN (${placeholders})
-            AND strftime('%Y-%m-%d %H:%M', h1.message_date) != strftime('%Y-%m-%d %H:%M', ?)
-        `).bind(messageDate, ...allProductLinks, messageDate)
-      );
-    }
-    
-    // 새 순위 데이터 저장 (out_rank = 0)
+    // 새로운 순위 데이터 저장 (update_session_id 포함)
     for (const ranking of rankings) {
       batch.push(
         DB.prepare(
-          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, message_date) VALUES (?, ?, ?, ?, 0, ?)'
-        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink, messageDate)
+          'INSERT INTO hasie_rankings (category, rank, product_name, product_link, out_rank, message_date, update_session_id) VALUES (?, ?, ?, ?, 0, ?, ?)'
+        ).bind(ranking.category, ranking.rank, ranking.productName, ranking.productLink, messageDate, sessionId)
       );
     }
     
