@@ -101,7 +101,8 @@ async function getAccessToken(serviceAccount: GoogleServiceAccount): Promise<str
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to get access token: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`Failed to get access token: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
   const data = await response.json() as { access_token: string };
@@ -224,7 +225,8 @@ export async function ensureSheetExists(
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to get spreadsheet info: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`Failed to get spreadsheet info: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
   const spreadsheet = await response.json() as { sheets: Array<{ properties: { title: string } }> };
