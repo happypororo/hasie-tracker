@@ -1,7 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "webapp",
-  "main": "src/index.tsx",
   "compatibility_date": "2025-10-19",
   "pages_build_output_dir": "./dist",
   "compatibility_flags": [
@@ -11,8 +10,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "webapp-production",
-      "database_id": "local-db"
+      "database_name": "hasie-tracker-production",
+      "database_id": "6973f9ea-abe7-4fc6-957e-c41bbf64174f"
     }
   ],
   // Browser Rendering API for web scraping
