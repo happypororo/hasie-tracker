@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { parseMultipleCategoryRankings } from './parser'
+import { convertArrayDatesToKST, convertObjectDatesToKST } from './utils'
 
 type Env = {
   DB: D1Database;
@@ -440,10 +441,13 @@ app.get('/api/hasie/latest', async (c) => {
     const stmt = DB.prepare(query);
     const { results } = await stmt.bind(...params).all();
     
+    // UTC → KST 변환
+    const rankingsKST = convertArrayDatesToKST(results);
+    
     return c.json({
       success: true,
-      count: results.length,
-      rankings: results
+      count: rankingsKST.length,
+      rankings: rankingsKST
     });
     
   } catch (error: any) {
@@ -491,10 +495,13 @@ app.get('/api/hasie/out-rank', async (c) => {
     const stmt = DB.prepare(query);
     const { results } = await stmt.bind(...params).all();
     
+    // UTC → KST 변환
+    const outRankingsKST = convertArrayDatesToKST(results);
+    
     return c.json({
       success: true,
-      count: results.length,
-      out_rankings: results
+      count: outRankingsKST.length,
+      out_rankings: outRankingsKST
     });
     
   } catch (error: any) {
@@ -533,10 +540,14 @@ app.get('/api/hasie/stats', async (c) => {
       WHERE out_rank = 0
     `).first();
     
+    // UTC → KST 변환
+    const statsKST = convertArrayDatesToKST(results);
+    const lastUpdateKST = convertObjectDatesToKST(lastUpdate);
+    
     return c.json({
       success: true,
-      stats: results,
-      last_update: lastUpdate?.last_message_date
+      stats: statsKST,
+      last_update: lastUpdateKST?.last_message_date
     });
     
   } catch (error: any) {
@@ -576,12 +587,15 @@ app.get('/api/hasie/trends', async (c) => {
       ORDER BY created_at ASC, rank ASC
     `).bind(category, days).all();
     
+    // UTC → KST 변환
+    const trendsKST = convertArrayDatesToKST(results);
+    
     return c.json({
       success: true,
       category,
       days,
-      count: results.length,
-      trends: results
+      count: trendsKST.length,
+      trends: trendsKST
     });
     
   } catch (error: any) {
@@ -702,6 +716,9 @@ app.get('/api/hasie/product-trends', async (c) => {
     const inRankResults = results.filter((r: any) => r.out_rank === 0);
     const lastResult = results[results.length - 1] as any;
     
+    // UTC → KST 변환 (trends 배열의 각 항목)
+    const trendsKST = convertArrayDatesToKST(trends);
+    
     return c.json({
       success: true,
       product_name: results[0].product_name,
@@ -710,7 +727,7 @@ app.get('/api/hasie/product-trends', async (c) => {
       best_rank: inRankResults.length > 0 ? Math.min(...inRankResults.map((r: any) => r.rank)) : 201,
       worst_rank: Math.max(...results.map((r: any) => r.out_rank === 1 ? 201 : r.rank)),
       total_records: results.length,
-      trends
+      trends: trendsKST
     });
     
   } catch (error: any) {
@@ -798,10 +815,13 @@ app.get('/api/hasie/latest-with-changes', async (c) => {
       })
     );
     
+    // UTC → KST 변환
+    const rankingsKST = convertArrayDatesToKST(rankingsWithChanges);
+    
     return c.json({
       success: true,
-      count: rankingsWithChanges.length,
-      rankings: rankingsWithChanges
+      count: rankingsKST.length,
+      rankings: rankingsKST
     });
     
   } catch (error: any) {
@@ -844,11 +864,14 @@ app.get('/api/hasie/export/all', async (c) => {
     const stmt = DB.prepare(query);
     const { results } = await stmt.bind(...params).all();
     
+    // UTC → KST 변환
+    const resultsKST = convertArrayDatesToKST(results);
+    
     // CSV 생성
     let csv = '\uFEFF'; // UTF-8 BOM
     csv += '카테고리,순위,상품명,상품링크,순위상태,기록시간,메시지시간\n';
     
-    results.forEach((row: any) => {
+    resultsKST.forEach((row: any) => {
       const status = row.out_rank === 1 ? 'OUT' : '순위권';
       csv += `"${row.category}",${row.rank},"${row.product_name.replace(/"/g, '""')}","${row.product_link}",${status},"${row.created_at}","${row.message_date}"\n`;
     });
@@ -911,6 +934,9 @@ app.get('/api/hasie/export/product', async (c) => {
       ORDER BY created_at ASC
     `).bind(productLink).all();
     
+    // UTC → KST 변환
+    const resultsKST = convertArrayDatesToKST(results);
+    
     // CSV 생성
     let csv = '\uFEFF'; // UTF-8 BOM
     csv += `상품명: ${productInfo.product_name}\n`;
@@ -919,7 +945,7 @@ app.get('/api/hasie/export/product', async (c) => {
     csv += '\n';
     csv += '순위,순위상태,기록시간,메시지시간\n';
     
-    results.forEach((row: any) => {
+    resultsKST.forEach((row: any) => {
       const status = row.out_rank === 1 ? 'OUT' : '순위권';
       csv += `${row.rank},${status},"${row.created_at}","${row.message_date}"\n`;
     });
