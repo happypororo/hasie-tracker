@@ -3,10 +3,13 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { parseMultipleCategoryRankings } from './parser'
 import { convertArrayDatesToKST, convertObjectDatesToKST } from './utils'
+import { backupToGoogleSheets, restoreFromGoogleSheets } from './services/backup'
 
 type Env = {
   DB: D1Database;
   TELEGRAM_BOT_TOKEN?: string;
+  GOOGLE_SHEETS_ID?: string;
+  GOOGLE_SERVICE_ACCOUNT?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -966,6 +969,111 @@ app.get('/api/hasie/export/product', async (c) => {
     return c.json({ 
       success: false, 
       error: error.message 
+    }, 500);
+  }
+});
+
+// ============================================
+// Google Sheets 백업/복원 엔드포인트
+// ============================================
+
+/**
+ * D1 데이터베이스를 Google Sheets에 백업
+ * POST /api/backup/to-sheets
+ */
+app.post('/api/backup/to-sheets', async (c) => {
+  try {
+    const { DB, GOOGLE_SHEETS_ID, GOOGLE_SERVICE_ACCOUNT } = c.env;
+    
+    if (!GOOGLE_SHEETS_ID || !GOOGLE_SERVICE_ACCOUNT) {
+      return c.json({
+        success: false,
+        error: 'Google Sheets 설정이 완료되지 않았습니다. 환경 변수를 확인하세요.'
+      }, 500);
+    }
+    
+    const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT);
+    const result = await backupToGoogleSheets(DB, {
+      spreadsheetId: GOOGLE_SHEETS_ID,
+      serviceAccount
+    });
+    
+    return c.json(result);
+    
+  } catch (error: any) {
+    console.error('Backup error:', error);
+    return c.json({
+      success: false,
+      error: error.message
+    }, 500);
+  }
+});
+
+/**
+ * Google Sheets에서 D1 데이터베이스로 복원
+ * POST /api/backup/from-sheets
+ * 
+ * ⚠️ 주의: 기존 데이터가 모두 삭제됩니다!
+ */
+app.post('/api/backup/from-sheets', async (c) => {
+  try {
+    const { DB, GOOGLE_SHEETS_ID, GOOGLE_SERVICE_ACCOUNT } = c.env;
+    
+    if (!GOOGLE_SHEETS_ID || !GOOGLE_SERVICE_ACCOUNT) {
+      return c.json({
+        success: false,
+        error: 'Google Sheets 설정이 완료되지 않았습니다. 환경 변수를 확인하세요.'
+      }, 500);
+    }
+    
+    const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT);
+    const result = await restoreFromGoogleSheets(DB, {
+      spreadsheetId: GOOGLE_SHEETS_ID,
+      serviceAccount
+    });
+    
+    return c.json(result);
+    
+  } catch (error: any) {
+    console.error('Restore error:', error);
+    return c.json({
+      success: false,
+      error: error.message
+    }, 500);
+  }
+});
+
+/**
+ * 백업 상태 확인
+ * GET /api/backup/status
+ */
+app.get('/api/backup/status', async (c) => {
+  try {
+    const { DB, GOOGLE_SHEETS_ID, GOOGLE_SERVICE_ACCOUNT } = c.env;
+    
+    // 환경 변수 설정 확인
+    const isConfigured = !!(GOOGLE_SHEETS_ID && GOOGLE_SERVICE_ACCOUNT);
+    
+    // D1 데이터베이스 통계
+    const rankingsCount = await DB.prepare('SELECT COUNT(*) as count FROM hasie_rankings').first();
+    const messagesCount = await DB.prepare('SELECT COUNT(*) as count FROM telegram_messages').first();
+    const sessionsCount = await DB.prepare('SELECT COUNT(*) as count FROM update_sessions').first();
+    
+    return c.json({
+      success: true,
+      configured: isConfigured,
+      spreadsheet_id: GOOGLE_SHEETS_ID || null,
+      database_stats: {
+        rankings: rankingsCount?.count || 0,
+        messages: messagesCount?.count || 0,
+        sessions: sessionsCount?.count || 0
+      }
+    });
+    
+  } catch (error: any) {
+    return c.json({
+      success: false,
+      error: error.message
     }, 500);
   }
 });
