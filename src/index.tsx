@@ -355,6 +355,9 @@ app.post('/api/telegram/webhook', async (c) => {
     
     await DB.batch(batch);
     
+    // 카테고리 목록 추출
+    const categoriesInMessage = [...new Set(rankings.map(r => r.category))];
+    
     return c.json({
       success: true,
       message: 'Rankings saved successfully',
