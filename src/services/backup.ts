@@ -27,7 +27,7 @@ export async function backupToGoogleSheets(
 
     // telegram_messages 테이블 데이터 가져오기
     const { results: messages } = await DB.prepare(
-      'SELECT * FROM telegram_messages ORDER BY received_at DESC'
+      'SELECT * FROM telegram_messages ORDER BY created_at DESC'
     ).all();
 
     // update_sessions 테이블 데이터 가져오기
@@ -120,16 +120,17 @@ export async function restoreFromGoogleSheets(
     for (const ranking of rankings) {
       await DB.prepare(`
         INSERT INTO hasie_rankings (
-          id, category, item_name, rank, out_rank, price, created_at, update_session_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          id, category, rank, product_name, product_link, out_rank, created_at, message_date, update_session_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         ranking.id,
         ranking.category,
-        ranking.item_name,
         ranking.rank,
+        ranking.product_name,
+        ranking.product_link,
         ranking.out_rank,
-        ranking.price,
         ranking.created_at,
+        ranking.message_date,
         ranking.update_session_id
       ).run();
     }
@@ -138,15 +139,15 @@ export async function restoreFromGoogleSheets(
     for (const message of messages) {
       await DB.prepare(`
         INSERT INTO telegram_messages (
-          id, message_id, chat_id, received_at, message_text, update_session_id
+          id, message_id, message_text, parsed_count, created_at, message_date
         ) VALUES (?, ?, ?, ?, ?, ?)
       `).bind(
         message.id,
         message.message_id,
-        message.chat_id,
-        message.received_at,
         message.message_text,
-        message.update_session_id
+        message.parsed_count,
+        message.created_at,
+        message.message_date
       ).run();
     }
 
@@ -154,12 +155,14 @@ export async function restoreFromGoogleSheets(
     for (const session of sessions) {
       await DB.prepare(`
         INSERT INTO update_sessions (
-          id, created_at, source
-        ) VALUES (?, ?, ?)
+          session_id, started_at, completed_at, message_date, status
+        ) VALUES (?, ?, ?, ?, ?)
       `).bind(
-        session.id,
-        session.created_at,
-        session.source
+        session.session_id,
+        session.started_at,
+        session.completed_at,
+        session.message_date,
+        session.status
       ).run();
     }
 
