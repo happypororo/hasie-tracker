@@ -558,7 +558,16 @@ function formatDate(dateString) {
 
 // 날짜/시간 포맷 (절대 시간, 한국 시간대)
 function formatDateTime(dateString) {
-  // DB에서 온 시간은 UTC 시간이므로 명시적으로 UTC로 파싱
+  // Backend에서 이미 KST로 변환되어 "YYYY.MM.DD HH:MM" 형식으로 옴
+  // 그대로 반환 (추가 변환 불필요)
+  if (!dateString) return '-';
+  
+  // 이미 포맷된 형식이면 그대로 반환
+  if (dateString.match(/^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}$/)) {
+    return dateString;
+  }
+  
+  // 레거시 형식 처리 (기존 데이터 호환성)
   let date;
   if (dateString.includes('T') && dateString.includes('Z')) {
     // ISO 8601 형식 (예: 2025-10-20T07:44:21.000Z)
