@@ -111,9 +111,25 @@ app.post('/api/hasie/import', async (c) => {
         WHERE session_id = ?
       `).bind(sessionId).run();
       
+      // 자동 백업: Google Sheets에 데이터 백업
+      try {
+        const { GOOGLE_SHEETS_ID, GOOGLE_SERVICE_ACCOUNT } = c.env;
+        if (GOOGLE_SHEETS_ID && GOOGLE_SERVICE_ACCOUNT) {
+          const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT);
+          await backupToGoogleSheets(DB, {
+            spreadsheetId: GOOGLE_SHEETS_ID,
+            serviceAccount
+          });
+          console.log('Auto backup completed after manual session end');
+        }
+      } catch (backupError) {
+        console.error('Auto backup failed:', backupError);
+        // 백업 실패해도 메인 프로세스는 계속 진행
+      }
+      
       return c.json({ 
         success: true, 
-        message: '업데이트 세션 완료 및 OUT Rank 처리 완료',
+        message: '업데이트 세션 완료 및 OUT Rank 처리 완료 (자동 백업 실행됨)',
         session_id: sessionId
       });
     }
@@ -297,9 +313,25 @@ app.post('/api/telegram/webhook', async (c) => {
         'INSERT INTO telegram_messages (message_id, message_text, parsed_count, message_date) VALUES (?, ?, ?, ?)'
       ).bind(messageId, messageText, 0, messageDate).run();
       
+      // 자동 백업: Google Sheets에 데이터 백업
+      try {
+        const { GOOGLE_SHEETS_ID, GOOGLE_SERVICE_ACCOUNT } = c.env;
+        if (GOOGLE_SHEETS_ID && GOOGLE_SERVICE_ACCOUNT) {
+          const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT);
+          await backupToGoogleSheets(DB, {
+            spreadsheetId: GOOGLE_SHEETS_ID,
+            serviceAccount
+          });
+          console.log('Auto backup completed after session end');
+        }
+      } catch (backupError) {
+        console.error('Auto backup failed:', backupError);
+        // 백업 실패해도 메인 프로세스는 계속 진행
+      }
+      
       return c.json({ 
         success: true, 
-        message: '업데이트 세션 완료 및 OUT Rank 처리 완료',
+        message: '업데이트 세션 완료 및 OUT Rank 처리 완료 (자동 백업 실행됨)',
         session_id: sessionId
       }, 200);
     }
