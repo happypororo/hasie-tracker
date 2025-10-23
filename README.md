@@ -286,8 +286,7 @@ curl http://localhost:3000
 
 ### 환경 변수 (.dev.vars)
 ```bash
-TELEGRAM_BOT_TOKEN=8402879837:AAGaN2uVkkufLo5hDBbDjZORFx_PNjJRtq4
-```
+TELEGRAM_BOT_TOKEN=
 
 ## 🤖 텔레그램 봇 설정
 
